@@ -46,16 +46,16 @@
       <!-- 대시보드 -->
       <section class="panel active" id="panel-dashboard" style="padding:0">
         <h2>대시보드</h2>
-        <p style="color:var(--muted);margin:0">데모리셀러(주) · 현재 등급 <b>Advanced</b> (예시)</p>
+        <p style="color:var(--muted);margin:0">데모리셀러(주) · 현재 등급 <b>Advanced</b></p>
         <div class="kpis">
-          <div class="kpi"><span>올해 누적 판매액</span><b id="kpiWon">-</b></div>
+          <div class="kpi"><span>최근 12개월 판매 실적</span><b id="kpiWon">-</b></div>
           <div class="kpi"><span>진행 중 딜</span><b id="kpiOpen">-</b></div>
-          <div class="kpi"><span>예상 리베이트 (예시 3%)</span><b id="kpiRebate">-</b></div>
-          <div class="kpi"><span>인증 인력</span><b>3명</b></div>
+          <div class="kpi"><span>계약 딜 파트너 할인 합계</span><b id="kpiDisc">-</b></div>
+          <div class="kpi"><span>인증 인력</span><b>3명 (기술 1명)</b></div>
         </div>
         <div class="card">
           <h3>Premier 등급까지</h3>
-          <p>판매 실적 기준 대비 진행률 (예시 기준: 연 10억 원)</p>
+          <p>판매 실적 기준(연 5억 원) 대비 진행률 · 인증 인력 4명(기술 2명), 레퍼런스 3건도 필요</p>
           <div class="progress"><i id="tierBar" style="width:0%"></i></div>
           <p id="tierText"></p>
         </div>
@@ -66,7 +66,7 @@
       <!-- 딜 등록 -->
       <section class="panel" id="panel-deals" style="padding:0">
         <h2>딜 등록·관리</h2>
-        <p style="color:var(--muted)">등록한 딜은 승인 후 90일간 보호됩니다 (예시 정책).</p>
+        <p style="color:var(--muted)">등록한 딜은 승인일로부터 90일간 보호되며, 진행 증빙(제안서·PoC 등)이 있으면 1회 연장해 최대 180일까지 보호됩니다. 할인율은 계약금액에 따라 자동 산정되고, 10억 원 이상 딜은 별도 협의로 분류됩니다.</p>
         <form class="apply card" id="dealForm" style="margin-top:0">
           <label>고객사명<input name="customer" required></label>
           <label>고객 유형
@@ -110,7 +110,6 @@
           <div class="card"><span class="tag">필수</span><h3>Timely 세일즈 기초</h3><p>제품 포지셔닝, 고객 유형별 제안 방법</p><div class="progress"><i style="width:100%"></i></div><p>3명 수료</p></div>
           <div class="card"><span class="tag">기술</span><h3>Timely AI 도입·구축</h3><p>고객 환경 구성, 사용자 관리, 운영</p><div class="progress"><i style="width:60%"></i></div><p>2명 수료 / 목표 5명</p></div>
           <div class="card"><span class="tag">기술</span><h3>Timely Router 연동</h3><p>API 연동, 모델 라우팅, 비용 관리</p><div class="progress"><i style="width:20%"></i></div><p>1명 수료 / 목표 5명</p></div>
-          <div class="card"><span class="tag">공공</span><h3>공공 사업 제안</h3><p>조달 절차, 보안 요건, 제안서 작성</p><div class="progress"><i style="width:0%"></i></div><p>미수료</p></div>
         </div>
       </section>
 
@@ -133,7 +132,7 @@
         <div class="card">
           <p><b>회사명</b> 데모리셀러(주)</p>
           <p><b>파트너 유형</b> 리셀러</p>
-          <p><b>등급</b> Advanced (예시)</p>
+          <p><b>등급</b> Advanced (다음 재산정: 2027.01)</p>
           <p><b>계약 기간</b> 2026.01 ~ 2026.12</p>
           <p><b>담당 파트너 매니저</b> 홍길동 (데모)</p>
         </div>
@@ -171,13 +170,25 @@
         return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
       });
     }
+    // 딜 1건 계약금액 기준 할인율. 10억 원 이상은 별도 협의(null).
+    function discountRate(amount) {
+      if (amount >= 1000000000) return null;
+      if (amount >= 500000000) return 0.15;
+      if (amount >= 200000000) return 0.12;
+      if (amount >= 50000000) return 0.08;
+      return 0.05;
+    }
+    function rateLabel(amount) {
+      var r = discountRate(amount);
+      return r === null ? '별도 협의' : Math.round(r * 100) + '%';
+    }
     function rows(list) {
-      var head = '<tr><th>고객사</th><th>유형</th><th>제품</th><th>금액</th><th>예상 시점</th><th>단계</th><th>등록 상태</th></tr>';
-      if (!list.length) return head + '<tr><td colspan="7">등록된 딜이 없습니다.</td></tr>';
+      var head = '<tr><th>고객사</th><th>유형</th><th>제품</th><th>금액</th><th>할인율</th><th>예상 시점</th><th>단계</th><th>등록 상태</th></tr>';
+      if (!list.length) return head + '<tr><td colspan="8">등록된 딜이 없습니다.</td></tr>';
       return head + list.map(function (d) {
         var cls = d.status === '승인' ? 'ok' : 'warn';
         return '<tr><td>' + esc(d.customer) + '</td><td>' + esc(d.segment) + '</td><td>' + esc(d.product) +
-          '</td><td>' + won(d.amount) + '</td><td>' + esc(d.close) + '</td><td>' + esc(d.stage) +
+          '</td><td>' + won(d.amount) + '</td><td>' + rateLabel(d.amount) + '</td><td>' + esc(d.close) + '</td><td>' + esc(d.stage) +
           '</td><td><span class="pill ' + cls + '">' + esc(d.status) + '</span></td></tr>';
       }).join('');
     }
@@ -185,13 +196,19 @@
       var closed = deals.filter(function (d) { return d.stage === '계약 완료'; });
       var wonSum = closed.reduce(function (a, d) { return a + Number(d.amount); }, 0);
       var open = deals.length - closed.length;
-      var target = 1000000000;
+      var target = 500000000;
+      var discSum = closed.reduce(function (a, d) {
+        var r = discountRate(Number(d.amount));
+        return a + (r === null ? 0 : Number(d.amount) * r);
+      }, 0);
       document.getElementById('kpiWon').textContent = won(wonSum);
       document.getElementById('kpiOpen').textContent = open + '건';
-      document.getElementById('kpiRebate').textContent = won(wonSum * 0.03);
+      document.getElementById('kpiDisc').textContent = won(discSum);
       var pct = Math.min(100, Math.round(wonSum / target * 100));
       document.getElementById('tierBar').style.width = pct + '%';
-      document.getElementById('tierText').textContent = pct + '% 달성 · 남은 금액 ' + won(Math.max(0, target - wonSum));
+      document.getElementById('tierText').textContent = wonSum >= target
+        ? '판매 실적 기준 달성 · 다음 재산정 때 인증 인력·레퍼런스 요건과 함께 심사'
+        : pct + '% 달성 · 남은 금액 ' + won(target - wonSum);
       document.getElementById('recentTable').innerHTML = rows(deals.slice(-3).reverse());
       document.getElementById('dealTable').innerHTML = rows(deals.slice().reverse());
     }
@@ -222,9 +239,11 @@
     document.getElementById('dealForm').addEventListener('submit', function (e) {
       e.preventDefault();
       var f = e.target;
+      var amount = Number(f.amount.value);
       deals.push({
         customer: f.customer.value.trim(), segment: f.segment.value, product: f.product.value,
-        amount: Number(f.amount.value), close: f.close.value, stage: f.stage.value, status: '검토 중'
+        amount: amount, close: f.close.value, stage: f.stage.value,
+        status: discountRate(amount) === null ? '별도 협의' : '검토 중'
       });
       save(deals);
       f.reset();
