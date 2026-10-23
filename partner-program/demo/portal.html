@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Timely Partner Portal</title>
+  <meta name="description" content="Timely 파트너 포털 데모: 대시보드, 딜 등록, 교육·인증, 자료실">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="demo-banner">데모 포털입니다. 로그인·데이터는 모두 가짜이며, 등록한 딜은 이 브라우저에만 저장됩니다.</div>
+
+  <header class="site">
+    <div class="wrap">
+      <a class="brand" href="index.html">Timely <span>Partner Portal</span></a>
+      <nav class="top">
+        <span id="who" class="hidden" style="font-size:14px;color:var(--muted)"></span>
+        <button class="btn ghost hidden" id="logout" type="button">로그아웃</button>
+        <a class="btn ghost portal-home" href="index.html">랜딩으로</a>
+      </nav>
+    </div>
+  </header>
+
+  <div id="login" class="wrap">
+    <div class="card login-box">
+      <h2>파트너 로그인</h2>
+      <p style="color:var(--muted)">데모 계정이 미리 입력되어 있습니다.</p>
+      <form id="loginForm" style="display:grid;gap:12px;margin-top:12px">
+        <label>이메일<input name="email" type="email" value="partner@demo-reseller.co.kr" required></label>
+        <label>비밀번호<input name="pw" type="password" value="demo" required></label>
+        <button class="btn" type="submit">로그인</button>
+      </form>
+    </div>
+  </div>
+
+  <div id="app" class="portal hidden">
+    <aside class="side">
+      <a href="#dashboard" data-tab="dashboard" class="active">대시보드</a>
+      <a href="#deals" data-tab="deals">딜 등록·관리</a>
+      <a href="#training" data-tab="training">교육·인증</a>
+      <a href="#resources" data-tab="resources">자료실</a>
+      <a href="#account" data-tab="account">파트너 정보</a>
+    </aside>
+
+    <div class="main">
+      <!-- 대시보드 -->
+      <section class="panel active" id="panel-dashboard" style="padding:0">
+        <h2>대시보드</h2>
+        <p style="color:var(--muted);margin:0">데모리셀러(주) · 현재 등급 <b>Advanced</b> (예시)</p>
+        <div class="kpis">
+          <div class="kpi"><span>올해 누적 판매액</span><b id="kpiWon">-</b></div>
+          <div class="kpi"><span>진행 중 딜</span><b id="kpiOpen">-</b></div>
+          <div class="kpi"><span>예상 리베이트 (예시 3%)</span><b id="kpiRebate">-</b></div>
+          <div class="kpi"><span>인증 인력</span><b>3명</b></div>
+        </div>
+        <div class="card">
+          <h3>Premier 등급까지</h3>
+          <p>판매 실적 기준 대비 진행률 (예시 기준: 연 10억 원)</p>
+          <div class="progress"><i id="tierBar" style="width:0%"></i></div>
+          <p id="tierText"></p>
+        </div>
+        <h3 style="margin-top:24px">최근 딜</h3>
+        <div class="table-wrap"><table id="recentTable"></table></div>
+      </section>
+
+      <!-- 딜 등록 -->
+      <section class="panel" id="panel-deals" style="padding:0">
+        <h2>딜 등록·관리</h2>
+        <p style="color:var(--muted)">등록한 딜은 승인 후 90일간 보호됩니다 (예시 정책).</p>
+        <form class="apply card" id="dealForm" style="margin-top:0">
+          <label>고객사명<input name="customer" required></label>
+          <label>고객 유형
+            <select name="segment" required>
+              <option>기업 (B2B2C)</option>
+              <option>공공기관 (B2G2C)</option>
+            </select>
+          </label>
+          <label>제품
+            <select name="product" required>
+              <option>Timely AI</option>
+              <option>Timely Router</option>
+              <option>Timely AI + Router</option>
+            </select>
+          </label>
+          <label>예상 계약금액 (원)<input name="amount" type="number" min="0" step="1000000" required></label>
+          <label>예상 계약 시점<input name="close" type="month" required></label>
+          <label>진행 단계
+            <select name="stage">
+              <option>발굴</option>
+              <option>제안</option>
+              <option>PoC</option>
+              <option>협상</option>
+              <option>계약 완료</option>
+            </select>
+          </label>
+          <label class="full">메모<textarea name="memo" placeholder="고객 요구사항, 공동 영업 요청 여부 등"></textarea></label>
+          <div class="full" style="display:flex;gap:10px;flex-wrap:wrap">
+            <button class="btn" type="submit">딜 등록</button>
+            <button class="btn ghost" type="button" id="resetDeals">샘플 데이터로 초기화</button>
+          </div>
+        </form>
+        <h3 style="margin-top:24px">전체 딜</h3>
+        <div class="table-wrap"><table id="dealTable"></table></div>
+      </section>
+
+      <!-- 교육·인증 -->
+      <section class="panel" id="panel-training" style="padding:0">
+        <h2>교육·인증</h2>
+        <div class="grid">
+          <div class="card"><span class="tag">필수</span><h3>Timely 세일즈 기초</h3><p>제품 포지셔닝, 고객 유형별 제안 방법</p><div class="progress"><i style="width:100%"></i></div><p>3명 수료</p></div>
+          <div class="card"><span class="tag">기술</span><h3>Timely AI 도입·구축</h3><p>고객 환경 구성, 사용자 관리, 운영</p><div class="progress"><i style="width:60%"></i></div><p>2명 수료 / 목표 5명</p></div>
+          <div class="card"><span class="tag">기술</span><h3>Timely Router 연동</h3><p>API 연동, 모델 라우팅, 비용 관리</p><div class="progress"><i style="width:20%"></i></div><p>1명 수료 / 목표 5명</p></div>
+          <div class="card"><span class="tag">공공</span><h3>공공 사업 제안</h3><p>조달 절차, 보안 요건, 제안서 작성</p><div class="progress"><i style="width:0%"></i></div><p>미수료</p></div>
+        </div>
+      </section>
+
+      <!-- 자료실 -->
+      <section class="panel" id="panel-resources" style="padding:0">
+        <h2>자료실</h2>
+        <div class="grid">
+          <div class="card"><h3>제품 소개서</h3><p>Timely AI · Timely Router 소개 자료 (데모: 파일 없음)</p></div>
+          <div class="card"><h3>제안서 템플릿</h3><p>기업용 / 공공기관용 제안서 양식</p></div>
+          <div class="card"><h3>가격표 (파트너용)</h3><p>등급별 파트너 공급가 (데모: 비공개)</p></div>
+          <div class="card"><h3>데모 환경 신청</h3><p>고객 시연용 Timely AI 환경과 Router PoC 크레딧 요청</p></div>
+          <div class="card"><h3>고객 사례</h3><p>업종별 도입 사례 모음</p></div>
+          <div class="card"><h3>공동 마케팅 신청</h3><p>세미나·MDF 지원 요청</p></div>
+        </div>
+      </section>
+
+      <!-- 파트너 정보 -->
+      <section class="panel" id="panel-account" style="padding:0">
+        <h2>파트너 정보</h2>
+        <div class="card">
+          <p><b>회사명</b> 데모리셀러(주)</p>
+          <p><b>파트너 유형</b> 리셀러</p>
+          <p><b>등급</b> Advanced (예시)</p>
+          <p><b>계약 기간</b> 2026.01 ~ 2026.12</p>
+          <p><b>담당 파트너 매니저</b> 홍길동 (데모)</p>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <script>
+    var KEY = 'timely-partner-demo-deals';
+    var SAMPLE = [
+      { customer: '한빛제조', segment: '기업 (B2B2C)', product: 'Timely AI', amount: 120000000, close: '2026-11', stage: '협상', status: '승인' },
+      { customer: '○○시청', segment: '공공기관 (B2G2C)', product: 'Timely AI', amount: 250000000, close: '2027-02', stage: '제안', status: '검토 중' },
+      { customer: '스타트커머스', segment: '기업 (B2B2C)', product: 'Timely Router', amount: 48000000, close: '2026-09', stage: '계약 완료', status: '승인' },
+      { customer: '미래금융', segment: '기업 (B2B2C)', product: 'Timely AI + Router', amount: 310000000, close: '2026-06', stage: '계약 완료', status: '승인' }
+    ];
+
+    function load() {
+      try {
+        var raw = localStorage.getItem(KEY);
+        if (raw) return JSON.parse(raw);
+      } catch (e) {}
+      return SAMPLE.slice();
+    }
+    function save(deals) {
+      try { localStorage.setItem(KEY, JSON.stringify(deals)); } catch (e) {}
+    }
+    var deals = load();
+
+    function won(n) {
+      if (n >= 100000000) return (n / 100000000).toFixed(1).replace(/\.0$/, '') + '억 원';
+      return Math.round(n / 10000).toLocaleString('ko-KR') + '만 원';
+    }
+    function esc(s) {
+      return String(s).replace(/[&<>"']/g, function (c) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+      });
+    }
+    function rows(list) {
+      var head = '<tr><th>고객사</th><th>유형</th><th>제품</th><th>금액</th><th>예상 시점</th><th>단계</th><th>등록 상태</th></tr>';
+      if (!list.length) return head + '<tr><td colspan="7">등록된 딜이 없습니다.</td></tr>';
+      return head + list.map(function (d) {
+        var cls = d.status === '승인' ? 'ok' : 'warn';
+        return '<tr><td>' + esc(d.customer) + '</td><td>' + esc(d.segment) + '</td><td>' + esc(d.product) +
+          '</td><td>' + won(d.amount) + '</td><td>' + esc(d.close) + '</td><td>' + esc(d.stage) +
+          '</td><td><span class="pill ' + cls + '">' + esc(d.status) + '</span></td></tr>';
+      }).join('');
+    }
+    function render() {
+      var closed = deals.filter(function (d) { return d.stage === '계약 완료'; });
+      var wonSum = closed.reduce(function (a, d) { return a + Number(d.amount); }, 0);
+      var open = deals.length - closed.length;
+      var target = 1000000000;
+      document.getElementById('kpiWon').textContent = won(wonSum);
+      document.getElementById('kpiOpen').textContent = open + '건';
+      document.getElementById('kpiRebate').textContent = won(wonSum * 0.03);
+      var pct = Math.min(100, Math.round(wonSum / target * 100));
+      document.getElementById('tierBar').style.width = pct + '%';
+      document.getElementById('tierText').textContent = pct + '% 달성 · 남은 금액 ' + won(Math.max(0, target - wonSum));
+      document.getElementById('recentTable').innerHTML = rows(deals.slice(-3).reverse());
+      document.getElementById('dealTable').innerHTML = rows(deals.slice().reverse());
+    }
+
+    function showTab(name) {
+      document.querySelectorAll('.side a').forEach(function (a) { a.classList.toggle('active', a.dataset.tab === name); });
+      document.querySelectorAll('.panel').forEach(function (p) { p.classList.toggle('active', p.id === 'panel-' + name); });
+    }
+    document.querySelectorAll('.side a').forEach(function (a) {
+      a.addEventListener('click', function (e) { e.preventDefault(); showTab(a.dataset.tab); });
+    });
+
+    function enter(email) {
+      document.getElementById('login').classList.add('hidden');
+      document.getElementById('app').classList.remove('hidden');
+      var who = document.getElementById('who');
+      who.textContent = email;
+      who.classList.remove('hidden');
+      document.getElementById('logout').classList.remove('hidden');
+      render();
+    }
+    document.getElementById('loginForm').addEventListener('submit', function (e) {
+      e.preventDefault();
+      enter(e.target.email.value);
+    });
+    document.getElementById('logout').addEventListener('click', function () { location.reload(); });
+
+    document.getElementById('dealForm').addEventListener('submit', function (e) {
+      e.preventDefault();
+      var f = e.target;
+      deals.push({
+        customer: f.customer.value.trim(), segment: f.segment.value, product: f.product.value,
+        amount: Number(f.amount.value), close: f.close.value, stage: f.stage.value, status: '검토 중'
+      });
+      save(deals);
+      f.reset();
+      render();
+    });
+    document.getElementById('resetDeals').addEventListener('click', function () {
+      deals = SAMPLE.slice();
+      save(deals);
+      render();
+    });
+  </script>
+</body>
+</html>
