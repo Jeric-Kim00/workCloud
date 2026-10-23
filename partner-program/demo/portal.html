@@ -4,11 +4,11 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Timely Partner Portal</title>
-  <meta name="description" content="Timely 파트너 포털 데모: 대시보드, 딜 등록, 교육·인증, 자료실">
+  <meta name="description" content="Timely 파트너 포털 데모: 대시보드, 딜 등록, 리베이트 결과, 교육·인증, 자료실">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <div class="demo-banner">데모 포털입니다. 로그인·데이터는 모두 가짜이며, 등록한 딜은 이 브라우저에만 저장됩니다.</div>
+  <div class="demo-banner">데모 포털입니다. 로그인과 데이터는 모두 가짜이며, 이 브라우저에만 저장됩니다.</div>
 
   <header class="site">
     <div class="wrap">
@@ -37,6 +37,7 @@
     <aside class="side">
       <a href="#dashboard" data-tab="dashboard" class="active">대시보드</a>
       <a href="#deals" data-tab="deals">딜 등록·관리</a>
+      <a href="#rebate" data-tab="rebate">리베이트</a>
       <a href="#training" data-tab="training">교육·인증</a>
       <a href="#resources" data-tab="resources">자료실</a>
       <a href="#account" data-tab="account">파트너 정보</a>
@@ -50,7 +51,7 @@
         <div class="kpis">
           <div class="kpi"><span>최근 12개월 판매 실적</span><b id="kpiWon">-</b></div>
           <div class="kpi"><span>진행 중 딜</span><b id="kpiOpen">-</b></div>
-          <div class="kpi"><span>계약 딜 파트너 할인 합계</span><b id="kpiDisc">-</b></div>
+          <div class="kpi"><span>Timely AI 할인 합계 (계약 딜)</span><b id="kpiDisc">-</b></div>
           <div class="kpi"><span>인증 인력</span><b>3명 (기술 1명)</b></div>
         </div>
         <div class="card">
@@ -66,7 +67,13 @@
       <!-- 딜 등록 -->
       <section class="panel" id="panel-deals" style="padding:0">
         <h2>딜 등록·관리</h2>
-        <p style="color:var(--muted)">등록한 딜은 승인일로부터 90일간 보호되며, 진행 증빙(제안서·PoC 등)이 있으면 1회 연장해 최대 180일까지 보호됩니다. 할인율은 계약금액에 따라 자동 산정되고, 10억 원 이상 딜은 별도 협의로 분류됩니다.</p>
+        <div class="notice" style="margin-bottom:16px">
+          <b>정책 안내</b><br>
+          · Timely AI 할인율은 고객 계약금액에 따라 5~15%가 적용되며, 10억 원 이상은 별도 협의입니다.<br>
+          · Timely Router는 별도 할인 기준이 적용됩니다(기준 확정 전, 협의).<br>
+          · 같은 고객의 딜을 합산해 할인 구간을 정할지는 본사가 판단합니다.<br>
+          · 승인된 딜은 90일간 보호되며, 진행 증빙이 있으면 1회 연장해 최대 180일까지 보호됩니다.
+        </div>
         <form class="apply card" id="dealForm" style="margin-top:0">
           <label>고객사명<input name="customer" required></label>
           <label>고객 유형
@@ -75,14 +82,8 @@
               <option>공공기관 (B2G2C)</option>
             </select>
           </label>
-          <label>제품
-            <select name="product" required>
-              <option>Timely AI</option>
-              <option>Timely Router</option>
-              <option>Timely AI + Router</option>
-            </select>
-          </label>
-          <label>예상 계약금액 (원)<input name="amount" type="number" min="0" step="1000000" required></label>
+          <label>Timely AI 계약금액 (원)<input name="ai" type="number" min="0" step="1000000" value="0"></label>
+          <label>Timely Router 계약금액 (원)<input name="router" type="number" min="0" step="1000000" value="0"></label>
           <label>예상 계약 시점<input name="close" type="month" required></label>
           <label>진행 단계
             <select name="stage">
@@ -94,13 +95,21 @@
             </select>
           </label>
           <label class="full">메모<textarea name="memo" placeholder="고객 요구사항, 공동 영업 요청 여부 등"></textarea></label>
-          <div class="full" style="display:flex;gap:10px;flex-wrap:wrap">
+          <div class="full" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
             <button class="btn" type="submit">딜 등록</button>
             <button class="btn ghost" type="button" id="resetDeals">샘플 데이터로 초기화</button>
+            <span id="dealMsg" style="font-size:14px;color:var(--warn)"></span>
           </div>
         </form>
         <h3 style="margin-top:24px">전체 딜</h3>
         <div class="table-wrap"><table id="dealTable"></table></div>
+      </section>
+
+      <!-- 리베이트 -->
+      <section class="panel" id="panel-rebate" style="padding:0">
+        <h2>리베이트</h2>
+        <p style="color:var(--muted)">리베이트는 본사가 정량 실적과 정성 평가를 종합해 결정합니다. 이 화면에는 결정 결과만 표시됩니다.</p>
+        <div class="table-wrap"><table id="rebateTable"></table></div>
       </section>
 
       <!-- 교육·인증 -->
@@ -108,8 +117,8 @@
         <h2>교육·인증</h2>
         <div class="grid">
           <div class="card"><span class="tag">필수</span><h3>Timely 세일즈 기초</h3><p>제품 포지셔닝, 고객 유형별 제안 방법</p><div class="progress"><i style="width:100%"></i></div><p>3명 수료</p></div>
-          <div class="card"><span class="tag">기술</span><h3>Timely AI 도입·구축</h3><p>고객 환경 구성, 사용자 관리, 운영</p><div class="progress"><i style="width:60%"></i></div><p>2명 수료 / 목표 5명</p></div>
-          <div class="card"><span class="tag">기술</span><h3>Timely Router 연동</h3><p>API 연동, 모델 라우팅, 비용 관리</p><div class="progress"><i style="width:20%"></i></div><p>1명 수료 / 목표 5명</p></div>
+          <div class="card"><span class="tag">기술</span><h3>Timely AI 도입·구축</h3><p>고객 환경 구성, 사용자 관리, 운영</p><div class="progress"><i style="width:50%"></i></div><p>1명 수료 / Premier 기준 2명</p></div>
+          <div class="card"><span class="tag">기술</span><h3>Timely Router 연동</h3><p>API 연동, 모델 라우팅, 비용 관리</p><div class="progress"><i style="width:0%"></i></div><p>미수료</p></div>
         </div>
       </section>
 
@@ -119,7 +128,7 @@
         <div class="grid">
           <div class="card"><h3>제품 소개서</h3><p>Timely AI · Timely Router 소개 자료 (데모: 파일 없음)</p></div>
           <div class="card"><h3>제안서 템플릿</h3><p>기업용 / 공공기관용 제안서 양식</p></div>
-          <div class="card"><h3>가격표 (파트너용)</h3><p>등급별 파트너 공급가 (데모: 비공개)</p></div>
+          <div class="card"><h3>파트너 할인 기준표</h3><p>Timely AI 딜 규모별 할인율, Timely Router 별도 기준</p></div>
           <div class="card"><h3>데모 환경 신청</h3><p>고객 시연용 Timely AI 환경과 Router PoC 크레딧 요청</p></div>
           <div class="card"><h3>고객 사례</h3><p>업종별 도입 사례 모음</p></div>
           <div class="card"><h3>공동 마케팅 신청</h3><p>세미나·MDF 지원 요청</p></div>
@@ -140,69 +149,48 @@
     </div>
   </div>
 
+  <script src="data.js"></script>
   <script>
-    var KEY = 'timely-partner-demo-deals';
-    var SAMPLE = [
-      { customer: '한빛제조', segment: '기업 (B2B2C)', product: 'Timely AI', amount: 120000000, close: '2026-11', stage: '협상', status: '승인' },
-      { customer: '○○시청', segment: '공공기관 (B2G2C)', product: 'Timely AI', amount: 250000000, close: '2027-02', stage: '제안', status: '검토 중' },
-      { customer: '스타트커머스', segment: '기업 (B2B2C)', product: 'Timely Router', amount: 48000000, close: '2026-09', stage: '계약 완료', status: '승인' },
-      { customer: '미래금융', segment: '기업 (B2B2C)', product: 'Timely AI + Router', amount: 310000000, close: '2026-06', stage: '계약 완료', status: '승인' }
-    ];
+    var won = TPN.won, esc = TPN.esc;
+    var deals = TPN.loadDeals();
 
-    function load() {
-      try {
-        var raw = localStorage.getItem(KEY);
-        if (raw) return JSON.parse(raw);
-      } catch (e) {}
-      return SAMPLE.slice();
-    }
-    function save(deals) {
-      try { localStorage.setItem(KEY, JSON.stringify(deals)); } catch (e) {}
-    }
-    var deals = load();
-
-    function won(n) {
-      if (n >= 100000000) return (n / 100000000).toFixed(1).replace(/\.0$/, '') + '억 원';
-      return Math.round(n / 10000).toLocaleString('ko-KR') + '만 원';
-    }
-    function esc(s) {
-      return String(s).replace(/[&<>"']/g, function (c) {
-        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
-      });
-    }
-    // 딜 1건 계약금액 기준 할인율. 10억 원 이상은 별도 협의(null).
-    function discountRate(amount) {
-      if (amount >= 1000000000) return null;
-      if (amount >= 500000000) return 0.15;
-      if (amount >= 200000000) return 0.12;
-      if (amount >= 50000000) return 0.08;
-      return 0.05;
-    }
-    function rateLabel(amount) {
-      var r = discountRate(amount);
-      return r === null ? '별도 협의' : Math.round(r * 100) + '%';
+    function mergeLabel(d) {
+      if (d.merge === '합산') return '합산 (' + esc(d.mergeWith) + ')';
+      if (d.merge === '개별') return '개별';
+      return '본사 검토 전';
     }
     function rows(list) {
-      var head = '<tr><th>고객사</th><th>유형</th><th>제품</th><th>금액</th><th>할인율</th><th>예상 시점</th><th>단계</th><th>등록 상태</th></tr>';
-      if (!list.length) return head + '<tr><td colspan="8">등록된 딜이 없습니다.</td></tr>';
+      var head = '<tr><th>딜 ID</th><th>고객사</th><th>유형</th><th>제품</th><th>AI 금액</th><th>AI 할인율</th><th>Router 금액</th><th>Router 할인</th><th>동일 고객 합산</th><th>예상 시점</th><th>단계</th><th>등록 상태</th><th>보호 만료</th></tr>';
+      if (!list.length) return head + '<tr><td colspan="13">등록된 딜이 없습니다.</td></tr>';
       return head + list.map(function (d) {
         var cls = d.status === '승인' ? 'ok' : 'warn';
-        return '<tr><td>' + esc(d.customer) + '</td><td>' + esc(d.segment) + '</td><td>' + esc(d.product) +
-          '</td><td>' + won(d.amount) + '</td><td>' + rateLabel(d.amount) + '</td><td>' + esc(d.close) + '</td><td>' + esc(d.stage) +
-          '</td><td><span class="pill ' + cls + '">' + esc(d.status) + '</span></td></tr>';
+        var end = TPN.protectionEnd(d);
+        return '<tr><td>' + esc(d.id) + '</td><td>' + esc(d.customer) + '</td><td>' + esc(d.segment) + '</td><td>' + esc(TPN.product(d)) +
+          '</td><td>' + (d.ai ? won(d.ai) : '-') + '</td><td>' + TPN.rateLabel(deals, d) +
+          '</td><td>' + (d.router ? won(d.router) : '-') + '</td><td>' + (d.router ? '별도 기준' : '-') +
+          '</td><td>' + mergeLabel(d) + '</td><td>' + esc(d.close) + '</td><td>' + esc(d.stage) +
+          '</td><td><span class="pill ' + cls + '">' + esc(d.status) + '</span></td><td>' +
+          (end ? end + (d.extended ? ' (연장)' : '') : '-') + '</td></tr>';
       }).join('');
+    }
+    function renderRebates() {
+      var log = TPN.loadLog().filter(function (e) { return e.type === 'rebate' && e.partner === TPN.PARTNER; });
+      var head = '<tr><th>결정일</th><th>대상 기간</th><th>결과</th><th>금액</th><th>안내</th></tr>';
+      document.getElementById('rebateTable').innerHTML = head + (log.length ? log.slice().reverse().map(function (e) {
+        return '<tr><td>' + esc(e.at) + '</td><td>' + esc(e.period) + '</td><td>' + esc(e.decision) +
+          '</td><td>' + (e.decision === '지급' ? won(e.amount) : '-') + '</td><td>' + esc(e.publicNote) + '</td></tr>';
+      }).join('') : '<tr><td colspan="5">결정된 리베이트가 없습니다.</td></tr>');
     }
     function render() {
       var closed = deals.filter(function (d) { return d.stage === '계약 완료'; });
-      var wonSum = closed.reduce(function (a, d) { return a + Number(d.amount); }, 0);
-      var open = deals.length - closed.length;
-      var target = 500000000;
+      var wonSum = closed.reduce(function (a, d) { return a + Number(d.ai) + Number(d.router); }, 0);
       var discSum = closed.reduce(function (a, d) {
-        var r = discountRate(Number(d.amount));
-        return a + (r === null ? 0 : Number(d.amount) * r);
+        var r = TPN.aiRate(deals, d);
+        return a + (r ? Number(d.ai) * r : 0);
       }, 0);
+      var target = 500000000;
       document.getElementById('kpiWon').textContent = won(wonSum);
-      document.getElementById('kpiOpen').textContent = open + '건';
+      document.getElementById('kpiOpen').textContent = (deals.length - closed.length) + '건';
       document.getElementById('kpiDisc').textContent = won(discSum);
       var pct = Math.min(100, Math.round(wonSum / target * 100));
       document.getElementById('tierBar').style.width = pct + '%';
@@ -211,6 +199,7 @@
         : pct + '% 달성 · 남은 금액 ' + won(target - wonSum);
       document.getElementById('recentTable').innerHTML = rows(deals.slice(-3).reverse());
       document.getElementById('dealTable').innerHTML = rows(deals.slice().reverse());
+      renderRebates();
     }
 
     function showTab(name) {
@@ -221,37 +210,39 @@
       a.addEventListener('click', function (e) { e.preventDefault(); showTab(a.dataset.tab); });
     });
 
-    function enter(email) {
+    document.getElementById('loginForm').addEventListener('submit', function (e) {
+      e.preventDefault();
       document.getElementById('login').classList.add('hidden');
       document.getElementById('app').classList.remove('hidden');
       var who = document.getElementById('who');
-      who.textContent = email;
+      who.textContent = e.target.email.value;
       who.classList.remove('hidden');
       document.getElementById('logout').classList.remove('hidden');
       render();
-    }
-    document.getElementById('loginForm').addEventListener('submit', function (e) {
-      e.preventDefault();
-      enter(e.target.email.value);
     });
     document.getElementById('logout').addEventListener('click', function () { location.reload(); });
 
     document.getElementById('dealForm').addEventListener('submit', function (e) {
       e.preventDefault();
       var f = e.target;
-      var amount = Number(f.amount.value);
+      var ai = Number(f.ai.value) || 0, router = Number(f.router.value) || 0;
+      var msg = document.getElementById('dealMsg');
+      if (!ai && !router) { msg.textContent = 'Timely AI 또는 Timely Router 계약금액을 입력하세요.'; return; }
+      msg.textContent = '';
+      var max = deals.reduce(function (a, d) { return Math.max(a, Number(d.id.slice(2)) || 0); }, 1000);
       deals.push({
-        customer: f.customer.value.trim(), segment: f.segment.value, product: f.product.value,
-        amount: amount, close: f.close.value, stage: f.stage.value,
-        status: discountRate(amount) === null ? '별도 협의' : '검토 중'
+        id: 'D-' + (max + 1), customer: f.customer.value.trim(), segment: f.segment.value,
+        ai: ai, router: router, close: f.close.value, stage: f.stage.value,
+        status: TPN.discountRate(ai) === null ? '별도 협의' : '검토 중',
+        approvedAt: null, extended: false, merge: '검토 전', mergeWith: null, memo: f.memo.value.trim()
       });
-      save(deals);
+      TPN.saveDeals(deals);
       f.reset();
       render();
     });
     document.getElementById('resetDeals').addEventListener('click', function () {
-      deals = SAMPLE.slice();
-      save(deals);
+      TPN.reset();
+      deals = TPN.loadDeals();
       render();
     });
   </script>
