@@ -52,6 +52,16 @@
 - ⚠ 총괄 인물은 출처마다 다릅니다. SDxCentral은 전 Google Cloud 출신 Philip Larson이라고 보도했고, 다른 2차 출처는 Colleen Kapase라고 씁니다. 확인이 필요합니다. — [SDxCentral](https://www.sdxcentral.com/news/openai-taps-google-lead-to-head-up-new-partner-program/)
 - 가입비, 마진, 딜 등록은 모두 미확인입니다.
 
+#### OPN 파트너 사이트 (partners.openai.com) [공식, 2026-10-26 직접 확인]
+- 첫 화면은 "Welcome to the OpenAI Partner Network"이고, 두 갈래로 나뉩니다: **New partners → Apply to the program** / **Existing partners → Sign in to the portal**. 승인된 파트너만 포털에 들어갑니다.
+- 신청서(`/partner-application`)는 4개 섹션입니다.
+  1. Contact information: 이름, 회사 이메일, 교육·인증용 이메일(선택, 개인 이메일 허용), 전화, 직함
+  2. Company information: 회사명, 법인명이 다를 경우 체크 후 입력, 웹사이트, 국가·주소
+  3. Partner profile: 회사 규모(1-50 ~ 20,001+), 파트너 유형(AI Boutique / RSI / GSI / Advisory / Technology / Cybersecurity Specialists), 주요 지역(AMER/EMEA/Japan/APAC/Global), 추가 지역, 주요 국가(최대 25개)
+  4. Agreement and submission: 파트너 약관 전자 동의(법적 구속력), 개인정보 처리방침 확인과 소식 수신
+- 신청서에 리셀러 유형이 없습니다. 리셀러 트랙이 확인되지 않는다는 2차 자료와 일치합니다.
+- Timely 데모 반영: 진입 화면의 두 갈래 구성, 신청서 4개 섹션 순서, 교육·인증용 이메일과 법인명 체크 항목을 가져왔습니다. 파트너 유형은 리셀러/총판, 지역은 국내 권역, 사업자등록번호와 공공 조달 경험 항목을 추가해 국내 실정에 맞췄습니다.
+
 ### 2-2. Anthropic Claude Partner Network (CPN)
 - 2026-03-12 출시. 초기 1억 달러를 약정했습니다. 2026-06-03에 서비스 트랙과 Partner Hub를 도입했습니다. — [TechAhead](https://www.techaheadcorp.com/blog/claude-partner-network-vs-openai-partner-network/), [Aventis Advisors](https://aventis-advisors.com/the-claude-partner-network-explained/)
 - 파트너 유형은 6군입니다: 전략 컨설팅, 글로벌 SI, 공공·정부 계약업체, 클라우드 네이티브 전문사, AI 네이티브 부티크, 업종 전문사. — Aventis Advisors
