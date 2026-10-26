@@ -482,6 +482,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
     var m = useState(null), msg = m[0], setMsg = m[1];
     var b = useState(false), busy = b[0], setBusy = b[1];
     var loadedKey = useState(null), lk = loadedKey[0], setLk = loadedKey[1];
+    var dn = useState(null), done = dn[0], setDone = dn[1];
 
     useEffect(function () {
       if (mine.data && lk !== 'loaded') { setF(Object.assign({}, EMPTY_APP, mine.data)); setLk('loaded'); }
@@ -505,8 +506,8 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
       try {
         var body = Object.assign({}, f, { uid: p.uid, submittedAt: (mine.data && mine.data.submittedAt) || new Date().toISOString(), updatedAt: new Date().toISOString() });
         await p.db.doc('applications/' + p.uid).set(body);
-        setMsg({ kind: 'ok', text: mine.data ? '신청서를 수정했어요.' : '신청서를 냈어요. 파트너팀이 검토한 뒤 파트너 포털에 결과를 알려 드려요.' });
-        window.scrollTo({ top: 0, behavior: 'smooth' });
+        setMsg(null);
+        setDone(mine.data ? 'edit' : 'new');
       } catch (err) { setMsg({ kind: 'danger', text: errText(err) }); }
       setBusy(false);
     }
@@ -517,7 +518,20 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
     else if (partner.data && partner.data.status === 'rejected') status = h(Notice, { kind: 'danger', title: '이번에는 함께하기 어려워요' }, partner.data.publicNote || '자세한 내용은 파트너팀에 문의해 주세요.');
     else if (mine.data) status = h(Notice, { title: '신청서를 검토하고 있어요' }, '제출일 ' + shortDate(mine.data.submittedAt) + ' · 검토 중에는 내용을 고쳐서 다시 낼 수 있어요.');
 
-    return h('section', { className: 'section' }, h('div', { className: 'wrap stack', style: { maxWidth: 840, gap: 24 } },
+    var nextSteps = [
+      ['파트너팀 검토', '파트너팀이 신청서를 검토해요. 필요하면 적어 주신 연락처로 연락드려요.'],
+      ['결과 확인', '심사 결과는 파트너 포털에서 확인할 수 있어요. 검토 중에는 신청서를 고쳐서 다시 낼 수 있어요.'],
+      ['계약·온보딩', '승인되면 파트너 계약을 맺고 세일즈 기초 인증을 받아요.'],
+      ['딜 등록·판매', '파트너 포털에 영업 기회를 등록하고 보호받으며 판매해요.']
+    ];
+    var doneModal = done ? h(T.Modal, { open: true, size: 'md', title: done === 'edit' ? '신청서를 수정했어요' : '신청서를 냈어요', subTitle: '앞으로 이렇게 진행돼요.' },
+      h('div', { className: 'stack' }, nextSteps.map(function (s, i) {
+        return h('div', { key: s[0], className: 'step' }, h('span', { className: 'step-no', 'aria-hidden': 'true' }, i + 1),
+          h('div', { className: 'stack-s', style: { gap: 2 } }, P('body-md-bold', s[0]), P('body-md-regular muted', s[1])));
+      })),
+      h('div', { slot: 'buttons' }, h(T.Button, { variant: 'primaryFilled', className: 'w-full', onClick: function () { setDone(null); props.go('home'); } }, '확인'))) : null;
+
+    return h('section', { className: 'section' }, doneModal, h('div', { className: 'wrap stack', style: { maxWidth: 840, gap: 24 } },
       h('div', null, h(T.Button, { variant: 'textFilled', size: 'small', onClick: function () { props.go('home'); } }, '← 프로그램 소개로')),
       h('div', { className: 'stack-s' }, h('h1', { className: 'head-lg title', style: { margin: 0 } }, '파트너 신청서'), P('body-lg-regular muted', '회사와 담당자 정보를 알려 주세요. 모든 항목은 파트너팀만 볼 수 있어요.')),
       p.ready && !canSave ? h(Unavailable) : null,
