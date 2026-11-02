@@ -147,19 +147,22 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
     { name: 'Advanced', min: 100000000, people: 2, tech: 1, refs: 1, desc: '실적 검증 파트너' },
     { name: 'Premier', min: 500000000, people: 4, tech: 2, refs: 3, desc: '전략 파트너' }
   ];
-  var BANDS = [
-    { label: '5천만 원 미만', rate: '5%' },
-    { label: '5천만 원 이상 ~ 2억 원 미만', rate: '8%' },
-    { label: '2억 원 이상 ~ 5억 원 미만', rate: '12%' },
-    { label: '5억 원 이상 ~ 10억 원 미만', rate: '15%' },
-    { label: '10억 원 이상', rate: '별도 협의' }
-  ];
-  function discountRate(amount) {
+  // 할인 구간(딜 1건의 Timely AI 계약금액). 비율은 파트너마다 승인 때 관리자가 정한다. 10억 원 이상은 항상 별도 협의.
+  var BAND_LABELS = ['5천만 원 미만', '5천만 원 이상 ~ 2억 원 미만', '2억 원 이상 ~ 5억 원 미만', '5억 원 이상 ~ 10억 원 미만'];
+  var BAND_MIN = [0, 50000000, 200000000, 500000000];
+  var DEFAULT_PRICING = { aiRates: [5, 8, 12, 15], routerRate: null };
+  function pricingOf(partner) {
+    var pr = partner && partner.pricing;
+    return { aiRates: (pr && pr.aiRates && pr.aiRates.length === 4) ? pr.aiRates : DEFAULT_PRICING.aiRates, routerRate: pr && pr.routerRate != null ? pr.routerRate : null };
+  }
+  function discountRate(amount, pricing) {
+    var rates = (pricing || DEFAULT_PRICING).aiRates;
     if (amount >= 1000000000) return null;
-    if (amount >= 500000000) return 0.15;
-    if (amount >= 200000000) return 0.12;
-    if (amount >= 50000000) return 0.08;
-    return 0.05;
+    for (var i = BAND_MIN.length - 1; i >= 0; i--) if (amount >= BAND_MIN[i]) return rates[i] / 100;
+    return rates[0] / 100;
+  }
+  function pricingSummary(pricing) {
+    return 'AI ' + pricing.aiRates.join('/') + '% · Router ' + (pricing.routerRate == null ? '별도 협의' : pricing.routerRate + '%');
   }
   var STAGES = ['발굴', '제안', 'PoC', '협상', '계약 완료'];
   // 고객 유형: 일반기업 / 공공기관 / 공기업 + 기타.
@@ -277,7 +280,8 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
 
   /* ───────── 딜 계산 ───────── */
   // 본사가 '합산'으로 판단한 딜끼리 Timely AI 금액을 합쳐 할인 구간을 정한다.
-  function enrichDeals(deals, reviews) {
+  function enrichDeals(deals, reviews, pricing) {
+    pricing = pricing || DEFAULT_PRICING;
     var byId = {};
     var list = deals.map(function (d) {
       var r = reviews[d.id] || {};
@@ -295,11 +299,13 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
       var group = list.filter(function (x) { return root(x).id === r; });
       d.bandBase = group.reduce(function (a, x) { return a + (Number(x.ai) || 0); }, 0);
       d.mergeLabel = group.length > 1 ? '합산' : d.review.merge === '개별' ? '개별' : '본사 검토 전';
-      d.aiRate = d.ai ? discountRate(d.bandBase) : undefined;
+      d.aiRate = d.ai ? discountRate(d.bandBase, pricing) : undefined;
+      d.routerRate = d.router ? (pricing.routerRate == null ? null : pricing.routerRate / 100) : undefined;
       d.protectEnd = r && d.review.approvedAt ? addDays(d.review.approvedAt, d.review.extended ? 180 : 90) : null;
     });
     return list;
   }
+  function routerRateLabel(d) { return d.routerRate === undefined ? '-' : d.routerRate === null ? '별도 협의' : Math.round(d.routerRate * 1000) / 10 + '%'; }
   function rateLabel(d) { return d.aiRate === undefined ? '-' : d.aiRate === null ? '별도 협의' : Math.round(d.aiRate * 100) + '%'; }
   function productLabel(d) { return [d.ai ? 'Timely AI' : '', d.router ? 'Timely Router' : ''].filter(Boolean).join(' + '); }
   function dealStatus(d) {
@@ -313,7 +319,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
       sales: closed.reduce(function (a, d) { return a + (Number(d.ai) || 0) + (Number(d.router) || 0); }, 0),
       closed: closed.length,
       open: deals.length - closed.length,
-      aiDiscount: closed.reduce(function (a, d) { return a + (d.aiRate ? Number(d.ai) * d.aiRate : 0); }, 0)
+      aiDiscount: closed.reduce(function (a, d) { return a + (d.aiRate ? Number(d.ai) * d.aiRate : 0) + (d.routerRate ? Number(d.router) * d.routerRate : 0); }, 0)
     };
   }
   function nextTier(tierName) {
@@ -382,6 +388,38 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
     var b = useState(false), busy = b[0], setBusy = b[1];
     return { open: ask, busy: busy, show: function () { setAsk(true); }, hide: function () { if (!busy) setAsk(false); },
       run: async function (fn) { setBusy(true); try { await fn(); } finally { setBusy(false); setAsk(false); } } };
+  }
+
+  // 파트너별 할인율 입력: Timely AI 4개 구간 + Timely Router 단일 비율(비우면 별도 협의)
+  function pricingDraft(pricing) { return { ai: pricing.aiRates.map(String), router: pricing.routerRate == null ? '' : String(pricing.routerRate) }; }
+  function parsePricing(draft) {
+    var ai = draft.ai.map(function (x) { return String(x).trim() === '' ? NaN : Number(x); });
+    if (ai.some(function (x) { return !isFinite(x) || x < 0 || x > 100; })) return { error: 'Timely AI 구간별 할인율을 0~100 사이 숫자로 입력해 주세요.' };
+    var r = String(draft.router).trim();
+    if (r !== '' && (!isFinite(Number(r)) || Number(r) < 0 || Number(r) > 100)) return { error: 'Timely Router 할인율은 0~100 사이 숫자로 입력하거나 비워 두세요.' };
+    return { value: { aiRates: ai, routerRate: r === '' ? null : Number(r) } };
+  }
+  function PricingEditor(props) {
+    var d = props.value;
+    function setAi(i) { return function (v) { var ai = d.ai.slice(); ai[i] = v.replace(/[^0-9.]/g, ''); props.onChange({ ai: ai, router: d.router }); }; }
+    var pct = { className: 'body-md-regular muted', style: { flex: 'none' } };
+    return h('div', { className: 'stack-s' },
+      h('div', { className: 'table-scroll' }, h(T.Table, { tableClassName: '!min-w-0' },
+        h('thead', null, h('tr', null, h(T.TH, null, 'Timely AI 딜 계약금액'), h(T.TH, { width: '160px' }, '할인율'))),
+        h('tbody', null, BAND_LABELS.map(function (label, i) {
+          return h('tr', { key: label }, h(T.TD, null, label), h(T.TD, null, h('div', { className: 'row', style: { flexWrap: 'nowrap' } },
+            h('div', { style: { width: 88 } }, h(Input, { id: 'pr-ai-' + i, inputMode: 'decimal', value: d.ai[i], onValue: setAi(i), 'aria-label': label + ' 할인율' })), h('span', pct, '%'))));
+        }).concat([h('tr', { key: 'over' }, h(T.TD, null, '10억 원 이상'), h(T.TD, null, '별도 협의'))])))),
+      h(Field, { label: 'Timely Router 할인율', help: '비워 두면 "별도 협의"로 표시돼요.' }, h('div', { className: 'row', style: { flexWrap: 'nowrap' } },
+        h('div', { style: { width: 88 } }, h(Input, { id: 'pr-router', inputMode: 'decimal', value: d.router, onValue: function (v) { props.onChange({ ai: d.ai, router: v.replace(/[^0-9.]/g, '') }); } })), h('span', pct, '%'))),
+      h('div', null, h(T.Button, { type: 'button', size: 'small', variant: 'grayScaleOutline', onClick: function () { props.onChange(pricingDraft(DEFAULT_PRICING)); } }, '기본값으로 되돌리기')));
+  }
+  function PricingTable(props) {
+    var pr = props.pricing;
+    return h(DataTable, { cols: ['Timely AI 딜 계약금액', '할인율'], rows: BAND_LABELS.map(function (label, i) {
+      return h('tr', { key: label }, h(T.TD, null, label), h(T.TD, null, h('span', { className: 'num' }, pr.aiRates[i] + '%')));
+    }).concat([h('tr', { key: 'over' }, h(T.TD, null, '10억 원 이상'), h(T.TD, null, '별도 협의')),
+      h('tr', { key: 'router' }, h(T.TD, null, 'Timely Router'), h(T.TD, null, h('span', { className: 'num' }, pr.routerRate == null ? '별도 협의' : pr.routerRate + '%')))]) });
   }
 
   function Unavailable(props) {
@@ -710,7 +748,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
   /* ───────── 랜딩 ───────── */
   function Home(props) {
     var benefits = [
-      ['판매 마진', 'Timely AI는 딜 규모에 따라 5~15% 할인을 적용해요. 10억 원 이상 딜은 별도로 협의하고, Timely Router는 별도 기준을 적용해요.'],
+      ['판매 마진', '딜 규모에 따라 차등 적용되는 파트너 할인을 받아요. 할인율은 승인할 때 파트너별로 정해 안내해요.'],
       ['딜 등록 보호', '승인된 딜은 90일간 보호해요. 진행 증빙이 있으면 한 번 연장해 최대 180일까지 보호해요.'],
       ['공동 영업', 'Advanced 등급부터 타임리 영업·기술 담당자와 함께 고객을 만나요.'],
       ['교육·인증', '세일즈·기술 인증 과정을 마치면 파트너 등급 요건에 반영돼요.'],
@@ -725,7 +763,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
     ];
     var faqs = [
       ['가입비가 있나요?', '가입비는 없어요.'],
-      ['할인율은 어떻게 정해지나요?', 'Timely AI 딜 1건의 계약금액에 따라 5~15%가 적용되고, 파트너 등급과는 관계없어요. 10억 원 이상 딜은 별도로 협의해요. 같은 고객의 딜을 합산해 구간을 정할지는 본사가 판단해요. Timely Router는 별도 할인 기준이 적용돼요.'],
+      ['할인율은 어떻게 정해지나요?', '파트너 승인 때 본사가 파트너별 할인율을 정해 파트너 포털로 안내해요. Timely AI는 딜 규모에 따라 차등 적용되고, Timely Router는 별도 할인율을 적용해요. 같은 고객의 딜을 합산해 구간을 정할지는 본사가 판단해요.'],
       ['리베이트가 있나요?', '정해진 비율은 없어요. 본사가 판매 실적 같은 정량 지표와 공동 영업 참여, 레퍼런스 확보 같은 정성 평가를 함께 보고 결정해요. 결과는 파트너 포털에서 확인할 수 있어요.'],
       ['공공기관·공기업 사업도 파트너로 할 수 있나요?', '네. 별도 공공 트랙 없이 같은 프로그램과 같은 기준으로 공공기관·공기업 딜을 등록하고 판매할 수 있어요.'],
       ['등급은 언제 바뀌나요?', '최근 12개월 판매 실적과 인증 인력, 고객 레퍼런스를 기준으로 연 1회 재산정해요.']
@@ -758,10 +796,10 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
 
       h('section', { className: 'section' }, h('div', { className: 'wrap stack', style: { gap: 24 } },
         h('div', { className: 'stack-s' }, P('body-md-bold eyebrow', '파트너 등급'), h('h2', { className: 'head-lg title', style: { margin: 0 } }, '실적에 따라 성장하는 3단계 등급'),
-          P('body-lg-regular muted lead', '판매 실적은 최근 12개월 누적 계약금액으로 산정하고, 등급은 연 1회 재산정해요. 할인율은 등급과 관계없이 딜 규모로 정해지고, 등급이 오르면 할인 외 혜택이 늘어나요.')),
+          P('body-lg-regular muted lead', '판매 실적은 최근 12개월 누적 계약금액으로 산정하고, 등급은 연 1회 재산정해요. 할인율은 파트너별로 정해지고, 등급이 오르면 할인 외 혜택이 늘어나요.')),
         h('div', { className: 'grid' }, TIERS.map(function (t, i) {
           var perks = [
-            ['딜 규모별 파트너 할인 (Timely AI 5~15%)', '딜 등록·보호, 파트너 포털', '온라인 교육·세일즈 키트', '고객 시연용 데모 환경'],
+            ['딜 규모별 파트너 할인', '딜 등록·보호, 파트너 포털', '온라인 교육·세일즈 키트', '고객 시연용 데모 환경'],
             ['Registered 혜택 전체', '공동 영업 (요청 시)', 'PoC 크레딧', '파트너 디렉터리 등재'],
             ['Advanced 혜택 전체', '전담 파트너 매니저', '공동 사업계획·공동 마케팅(MDF)', '신기능 사전 공개·로드맵 공유']
           ][i];
@@ -771,10 +809,8 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
             h('div', { className: 'stack-s' }, P('head-sm-bold', t.name), P('body-md-regular muted', t.desc)),
             h('ul', { className: 'tier-list body-md-regular' }, perks.map(function (p) { return h('li', { key: p }, p); })),
             P('body-sm-regular muted req', req));
-        })),
-        h('div', { className: 'stack-s', style: { marginTop: 16 } }, P('head-sm-bold', 'Timely AI 딜 규모별 할인율'),
-          P('body-md-regular muted', '딜 1건의 Timely AI 계약금액 기준이에요. 같은 고객의 여러 딜을 합산할지는 본사가 판단해요. Timely Router는 별도 기준을 적용해요.')),
-        h('div', { style: { maxWidth: 560 } }, h(DataTable, { cols: ['딜 계약금액', '파트너 할인율'], rows: BANDS.map(function (b) { return h('tr', { key: b.label }, h(T.TD, null, b.label), h(T.TD, null, h('span', { className: 'num' }, b.rate))); }) })))),
+        })))),
+
 
       h('section', { className: 'section white' }, h('div', { className: 'wrap stack', style: { gap: 24 } },
         h('div', { className: 'stack-s' }, P('body-md-bold eyebrow', '참여 절차'), h('h2', { className: 'head-lg title', style: { margin: 0 } }, '신청부터 첫 판매까지')),
@@ -959,8 +995,8 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
     var rebatesQ = useCol('partners/' + uid + '/rebates');
     var reviews = useMemo(function () { var o = {}; reviewsQ.rows.forEach(function (r) { o[r.id] = r; }); return o; }, [reviewsQ.rows]);
     var deals = useMemo(function () {
-      return enrichDeals(dealsQ.rows, reviews).sort(function (a, b) { return String(b.createdAt).localeCompare(String(a.createdAt)); });
-    }, [dealsQ.rows, reviews]);
+      return enrichDeals(dealsQ.rows, reviews, pricingOf(partner)).sort(function (a, b) { return String(b.createdAt).localeCompare(String(a.createdAt)); });
+    }, [dealsQ.rows, reviews, partner.pricing]);
     var m = metrics(deals);
     var nt = nextTier(partner.tier);
     var ps = useState(null), pendingStage = ps[0], setPendingStage = ps[1];
@@ -973,7 +1009,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
         return h('tr', { key: d.id },
           h(T.TD, null, d.customer), h(T.TD, null, segLabel(d.segment)), h(T.TD, null, productLabel(d)),
           h(T.TD, null, h('span', { className: 'num' }, d.ai ? won(d.ai) : '-')), h(T.TD, null, h('span', { className: 'num' }, rateLabel(d))),
-          h(T.TD, null, h('span', { className: 'num' }, d.router ? won(d.router) : '-')), h(T.TD, null, d.router ? '별도 기준' : '-'),
+          h(T.TD, null, h('span', { className: 'num' }, d.router ? won(d.router) : '-')), h(T.TD, null, h('span', { className: 'num' }, routerRateLabel(d))),
           h(T.TD, null, d.mergeLabel),
           h(T.TD, null, editable
             ? h('select', { className: 'native', style: { width: 120, height: 32 }, value: d.stage, 'aria-label': d.customer + ' 진행 단계',
@@ -995,7 +1031,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
       body = h(F, null,
         h('div', { className: 'kpis' },
           Kpi('판매 실적 (계약 완료)', won(m.sales)), Kpi('진행 중 딜', m.open + '건'),
-          Kpi('Timely AI 할인 합계', won(m.aiDiscount), '계약 완료 딜 기준'), Kpi('현재 등급', partner.tier || 'Registered')),
+          Kpi('파트너 할인 합계', won(m.aiDiscount), '계약 완료 딜 기준'), Kpi('현재 등급', partner.tier || 'Registered')),
         nt ? h('div', { className: 'box stack-s' },
           P('head-sm-bold', nt.name + ' 등급까지'),
           P('body-md-regular muted', '판매 실적 기준 ' + won(nt.min) + ' · 인증 인력 ' + nt.people + '명(기술 ' + nt.tech + '명), 레퍼런스 ' + nt.refs + '건도 필요해요.'),
@@ -1005,7 +1041,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
         P('head-sm-bold', '최근 딜'),
         h(DataTable, { cols: dealCols, rows: dealRows(deals.slice(0, 3), false), empty: '등록한 딜이 없어요. 딜 등록·관리 탭에서 첫 딜을 등록해 보세요.' }));
     } else if (tab === '딜 등록·관리') {
-      body = h(F, null, h(DealForm, { uid: uid }), P('head-sm-bold', '전체 딜'),
+      body = h(F, null, h(DealForm, { uid: uid, pricing: pricingOf(partner) }), P('head-sm-bold', '전체 딜'),
         h(DataTable, { cols: dealCols, rows: dealRows(deals, true), empty: '등록한 딜이 없어요.' }));
     } else if (tab === '리베이트') {
       body = h(F, null,
@@ -1017,13 +1053,15 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
           }) }));
     } else if (tab === '교육·자료') {
       var res = [['Timely 세일즈 기초', '필수 인증 · 제품 포지셔닝, 고객 유형별 제안 방법'], ['Timely AI 도입·구축', '기술 인증 · 고객 환경 구성, 사용자 관리, 운영'], ['Timely Router 연동', '기술 인증 · API 연동, 모델 라우팅, 비용 관리'],
-        ['제품 소개서', 'Timely AI · Timely Router 소개 자료'], ['제안서 템플릿', '기업용 · 공공기관용 제안서 양식'], ['파트너 할인 기준표', 'Timely AI 딜 규모별 할인율, Router 별도 기준']];
+        ['제품 소개서', 'Timely AI · Timely Router 소개 자료'], ['제안서 템플릿', '기업용 · 공공기관용 제안서 양식'], ['파트너 할인 기준표', '파트너 정보 탭에서 우리 회사 할인율을 확인할 수 있어요']];
       body = h('div', { className: 'grid' }, res.map(function (r) { return h('div', { key: r[0], className: 'box tight stack-s' }, P('body-lg-bold', r[0]), P('body-md-regular muted', r[1]), P('body-sm-regular neutral', '데모에서는 자료 파일이 없어요.')); }));
     } else {
       var a = props.app || {};
-      body = h('div', { className: 'box' }, h('dl', { className: 'kv body-md-regular' },
+      body = h(F, null, h('div', { className: 'box' }, h('dl', { className: 'kv body-md-regular' },
         [['회사명', partner.company || a.company], ['파트너 유형', a.type], ['등급', partner.tier], ['승인일', shortDate(partner.decidedAt)], ['담당자', [a.name, a.title].filter(Boolean).join(' · ')], ['회사 이메일', a.email], ['연락처', a.phone], ['관심 제품', (a.products || []).join(', ')]]
-          .map(function (kv) { return h(F, { key: kv[0] }, h('dt', null, kv[0]), h('dd', null, kv[1] || '-')); })));
+          .map(function (kv) { return h(F, { key: kv[0] }, h('dt', null, kv[0]), h('dd', null, kv[1] || '-')); }))),
+        h('div', { className: 'stack-s' }, P('head-sm-bold', '우리 회사 할인율'), P('body-md-regular muted', '본사가 정한 파트너 할인율이에요. 같은 고객의 딜을 합산할지는 본사가 판단해요.')),
+        h('div', { style: { maxWidth: 560 } }, h(PricingTable, { pricing: pricingOf(partner) })));
     }
 
     var stageModal = stageAsk.open && pendingStage ? h(ConfirmModal, {
@@ -1049,7 +1087,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
     function set(k) { return function (v) { var n = Object.assign({}, f); n[k] = v; setF(n); }; }
     var ai = Number(String(f.ai).replace(/,/g, '')) || 0, router = Number(String(f.router).replace(/,/g, '')) || 0;
     var ask = useAsk();
-    var preview = ai ? (discountRate(ai) === null ? '10억 원 이상이라 별도 협의 대상이에요.' : '예상 Timely AI 할인율 ' + Math.round(discountRate(ai) * 100) + '% (같은 고객 합산 여부는 본사가 판단해요)') : null;
+    var preview = ai ? (discountRate(ai, props.pricing) === null ? '10억 원 이상이라 별도 협의 대상이에요.' : '예상 Timely AI 할인율 ' + Math.round(discountRate(ai, props.pricing) * 1000) / 10 + '% (같은 고객 합산 여부는 본사가 판단해요)') : null;
     async function submit(e) {
       e.preventDefault();
       if (!f.customer.trim()) { setMsg({ kind: 'danger', text: '고객사명을 입력해 주세요.' }); return; }
@@ -1071,17 +1109,17 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
     return h('form', { className: 'box stack', onSubmit: submit, noValidate: true },
       ask.open ? h(ConfirmModal, {
         title: '딜을 등록할까요?', subTitle: '등록하면 본사가 검토한 뒤 보호 기간이 시작돼요.',
-        items: [['고객사', f.customer.trim() + ' · ' + f.segment], ['Timely AI', ai ? won(ai) + (discountRate(ai) === null ? ' · 별도 협의' : ' · 예상 할인율 ' + Math.round(discountRate(ai) * 100) + '%') : ''],
-          ['Timely Router', router ? won(router) + ' · 별도 기준' : ''], ['예상 계약 시점', f.close], ['진행 단계', f.stage]],
+        items: [['고객사', f.customer.trim() + ' · ' + f.segment], ['Timely AI', ai ? won(ai) + (discountRate(ai, props.pricing) === null ? ' · 별도 협의' : ' · 예상 할인율 ' + Math.round(discountRate(ai, props.pricing) * 1000) / 10 + '%') : ''],
+          ['Timely Router', router ? won(router) + ' · ' + (props.pricing.routerRate == null ? '별도 협의' : '할인율 ' + props.pricing.routerRate + '%') : ''], ['예상 계약 시점', f.close], ['진행 단계', f.stage]],
         confirmLabel: '등록하기', busy: ask.busy, onCancel: ask.hide, onConfirm: function () { ask.run(doSave); }
       }) : null,
       h('div', { className: 'stack-s' }, P('head-sm-bold', '새 딜 등록'),
-        P('body-md-regular muted', '승인된 딜은 90일간 보호되고, 진행 증빙이 있으면 한 번 연장해 최대 180일까지 보호돼요. Timely Router는 별도 할인 기준을 적용해요.')),
+        P('body-md-regular muted', '승인된 딜은 90일간 보호되고, 진행 증빙이 있으면 한 번 연장해 최대 180일까지 보호돼요. 할인율은 파트너 정보 탭에서 확인할 수 있어요.')),
       h('div', { className: 'form-grid' },
         h(Field, { label: '고객사명', required: true }, h(Input, { id: 'd-customer', value: f.customer, onValue: set('customer') })),
         h(Field, { label: '고객 유형', required: true, help: '일반기업 · 공공기관 · 공기업 중 세부 유형을 골라 주세요.' }, h(T.Dropdown, { key: 'seg' + resetKey, options: SEGMENT_OPTIONS, value: f.segment, placeholder: '고객 유형 고르기', onSelect: set('segment') })),
         h(Field, { label: 'Timely AI 계약금액 (원)', help: preview || '부가세 별도 금액' }, h(T.TextInput, { id: 'd-ai', inputType: 'number', thousandSeparator: ',', wrapperClassName: 'w-full', value: f.ai, onChange: function (e) { set('ai')(e.target.value); } })),
-        h(Field, { label: 'Timely Router 계약금액 (원)', help: '별도 할인 기준 적용' }, h(T.TextInput, { id: 'd-router', inputType: 'number', thousandSeparator: ',', wrapperClassName: 'w-full', value: f.router, onChange: function (e) { set('router')(e.target.value); } })),
+        h(Field, { label: 'Timely Router 계약금액 (원)', help: 'Timely Router 할인율 ' + (props.pricing.routerRate == null ? '별도 협의' : props.pricing.routerRate + '%') }, h(T.TextInput, { id: 'd-router', inputType: 'number', thousandSeparator: ',', wrapperClassName: 'w-full', value: f.router, onChange: function (e) { set('router')(e.target.value); } })),
         h(Field, { label: '예상 계약 시점', required: true }, h('input', { id: 'd-close', className: 'native', type: 'month', value: f.close, onChange: function (e) { set('close')(e.target.value); } })),
         h(Field, { label: '진행 단계' }, h(T.Dropdown, { key: 'stage' + resetKey, options: opts(STAGES), value: f.stage, onSelect: set('stage') })),
         h(Field, { label: '메모', full: true }, h('textarea', { id: 'd-memo', className: 'textarea', value: f.memo, placeholder: '고객 요구사항, 공동 영업 요청 여부 등', onChange: function (e) { set('memo')(e.target.value); } }))),
@@ -1099,7 +1137,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
     { key: 'log', label: '결정 기록', icon: 'Icon16pxIcList' }
   ];
   var APP_STATUS = { approved: ['승인', 'green'], hold: ['보류', 'yellow'], rejected: ['반려', 'red'] };
-  var LOG_TYPE = { application: '신청 심사', tier: '등급 변경', approve: '딜 승인', reject: '딜 반려', extend: '보호 연장', merge: '동일 고객 합산', rebate: '리베이트' };
+  var LOG_TYPE = { application: '신청 심사', tier: '등급 변경', pricing: '할인율 변경', terms: '등급·할인율 변경', approve: '딜 승인', reject: '딜 반려', extend: '보호 연장', merge: '동일 고객 합산', rebate: '리베이트' };
 
   function Admin() {
     var p = usePlatform();
@@ -1121,7 +1159,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
     var allDeals = [];
     approvedIds.forEach(function (pid) {
       var rv = {}; (reviewMap['partners/' + pid + '/dealReviews'] || []).forEach(function (r) { rv[r.id] = r; });
-      enrichDeals(dealsMap['deals/' + pid + '/items'] || [], rv).forEach(function (d) { d.partnerId = pid; allDeals.push(d); });
+      enrichDeals(dealsMap['deals/' + pid + '/items'] || [], rv, pricingOf(partnerById[pid])).forEach(function (d) { d.partnerId = pid; allDeals.push(d); });
     });
     allDeals.sort(function (a, b) { return String(b.createdAt).localeCompare(String(a.createdAt)); });
     var pendingApps = apps.rows.filter(function (a) { return !partnerById[a.id]; });
@@ -1212,10 +1250,13 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
     var n = useState((pr && pr.publicNote) || ''), note = n[0], setNote = n[1];
     var m = useState(null), msg = m[0], setMsg = m[1];
     var b = useState(false), busy = b[0], setBusy = b[1];
+    var pd = useState(pricingDraft(pricingOf(pr))), draft = pd[0], setDraft = pd[1];
+    var pv = useState(null), pricing = pv[0], setPricing = pv[1];
     var ask = useAsk();
     if (!a) return null;
     function save() {
       if (!reason.trim()) { setMsg('판단 근거를 적어 주세요. 결정 기록에 남아요.'); return; }
+      if (decision === 'approved') { var pp = parsePricing(draft); if (pp.error) { setMsg(pp.error); return; } setPricing(pp.value); }
       setMsg(null); ask.show();
     }
     async function doSave() {
@@ -1224,10 +1265,11 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
         var now = new Date().toISOString();
         await platform.db.doc('partners/' + a.id).set(Object.assign({}, pr || {}, {
           status: decision, tier: decision === 'approved' ? tier : (pr && pr.tier) || null, company: a.company,
+          pricing: decision === 'approved' ? pricing : (pr && pr.pricing) || null,
           publicNote: note.trim(), decidedAt: now, decidedBy: platform.uid
         }));
         await writeLog({ type: 'application', partnerId: a.id, target: a.company, reason: reason.trim(),
-          result: APP_STATUS[decision][0] + (decision === 'approved' ? ' · ' + tier + ' 등급' : '') + (note.trim() ? ' · 안내: ' + note.trim() : '') });
+          result: APP_STATUS[decision][0] + (decision === 'approved' ? ' · ' + tier + ' 등급 · 할인율 ' + pricingSummary(pricing) : '') + (note.trim() ? ' · 안내: ' + note.trim() : '') });
         props.onClose();
       } catch (err) { setMsg(errText(err)); setBusy(false); }
     }
@@ -1237,7 +1279,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
       ['관심 제품', (a.products || []).join(', ')], ['연 매출 규모', a.revenue], ['공공 조달 경험', a.publicExp], ['영업 계획', a.plan], ['제출일', shortDate(a.submittedAt) + (a.updatedAt && a.updatedAt !== a.submittedAt ? ' (수정 ' + shortDate(a.updatedAt) + ')' : '')]];
     if (ask.open) return h(ConfirmModal, {
       title: a.company + ' 신청을 ' + APP_STATUS[decision][0] + '할까요?', subTitle: '신청자 화면에 결과가 바로 보여요.',
-      items: [['결정', APP_STATUS[decision][0]], ['시작 등급', decision === 'approved' ? tier : ''], ['신청자 안내', note.trim()], ['판단 근거', reason.trim()]],
+      items: [['결정', APP_STATUS[decision][0]], ['시작 등급', decision === 'approved' ? tier : ''], ['할인율', decision === 'approved' && pricing ? pricingSummary(pricing) : ''], ['신청자 안내', note.trim()], ['판단 근거', reason.trim()]],
       note: '결정은 결정 기록에 남고, 기록은 고치거나 지울 수 없어요.', danger: decision === 'rejected', confirmLabel: APP_STATUS[decision][0] + '하기',
       busy: ask.busy, onCancel: ask.hide, onConfirm: function () { ask.run(doSave); }
     });
@@ -1248,6 +1290,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
           P('head-sm-bold', '심사 결정'),
           h(Radio, { options: ['승인', '보류', '반려'], value: APP_STATUS[decision][0], onValue: function (v) { setDecision({ '승인': 'approved', '보류': 'hold', '반려': 'rejected' }[v]); } }),
           decision === 'approved' ? h(Field, { label: '시작 등급' }, h(T.Dropdown, { options: opts(TIERS.map(function (x) { return x.name; })), value: tier, onSelect: setTier })) : null,
+          decision === 'approved' ? h(Field, { label: '파트너 할인율', help: '기본값이 채워져 있어요. 이 파트너에 맞게 고쳐 주세요.' }, h(PricingEditor, { value: draft, onChange: setDraft })) : null,
           h(Field, { label: '판단 근거 (내부)', required: true, help: '결정 기록에만 남고 신청자에게는 보이지 않아요.' }, h('textarea', { id: 'm-reason', className: 'textarea', value: reason, onChange: function (e) { setReason(e.target.value); } })),
           h(Field, { label: '신청자에게 보일 안내', help: '파트너 신청·포털 화면에 표시돼요.' }, h(Input, { id: 'm-note', value: note, onValue: setNote })),
           msg ? h(Notice, { kind: 'danger' }, msg) : null)),
@@ -1261,13 +1304,14 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
     var o = useState(null), open = o[0], setOpen = o[1];
     var list = c.partners.filter(function (x) { return x.status === 'approved'; });
     return h(F, null,
-      PageHead('파트너 관리', '승인된 파트너의 등급과 실적을 확인하고 등급을 조정해요.'),
+      PageHead('파트너 관리', '승인된 파트너의 등급, 할인율, 실적을 확인하고 등급과 할인율을 조정해요.'),
       h('div', { style: { width: '100%' } }, h(DataTable, {
-        cols: ['회사명', '등급', '판매 실적', '계약 딜', '진행 중 딜', '다음 등급까지', '승인일'], empty: '승인된 파트너가 없어요. 파트너 신청에서 신청서를 승인하면 여기에 보여요.',
+        cols: ['회사명', '등급', '할인율', '판매 실적', '계약 딜', '진행 중 딜', '다음 등급까지', '승인일'], empty: '승인된 파트너가 없어요. 파트너 신청에서 신청서를 승인하면 여기에 보여요.',
         rows: list.map(function (pr) {
           var ds = c.deals.filter(function (d) { return d.partnerId === pr.id; }), m = metrics(ds), nt = nextTier(pr.tier);
           return h('tr', { key: pr.id, className: 'clickable', tabIndex: 0, onClick: function () { setOpen(pr.id); }, onKeyDown: function (e) { if (e.key === 'Enter') setOpen(pr.id); } },
             h(T.TD, null, h('span', { className: 'body-md-bold' }, pr.company)), h(T.TD, null, h(T.Badge, { theme: pr.tier === 'Premier' ? 'master' : pr.tier === 'Advanced' ? 'primary' : 'gray' }, pr.tier)),
+            h(T.TD, null, h('span', { className: 'num' }, pricingSummary(pricingOf(pr)))),
             h(T.TD, null, h('span', { className: 'num' }, won(m.sales))), h(T.TD, null, m.closed + '건'), h(T.TD, null, m.open + '건'),
             h(T.TD, null, nt ? (m.sales >= nt.min ? nt.name + ' 실적 기준 충족' : nt.name + '까지 ' + won(nt.min - m.sales)) : '최상위'), h(T.TD, null, h('span', { className: 'num' }, shortDate(pr.decidedAt))));
         }) })),
@@ -1280,32 +1324,47 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
     var r = useState(''), reason = r[0], setReason = r[1];
     var e = useState(null), msg = e[0], setMsg = e[1];
     var b = useState(false), busy = b[0], setBusy = b[1];
+    var before = pricingOf(pr);
+    var pd = useState(pricingDraft(before)), draft = pd[0], setDraft = pd[1];
+    var pv = useState(null), pricing = pv[0], setPricing = pv[1];
     var ask = useAsk();
+    var pricingChanged = pricing && pricingSummary(pricing) !== pricingSummary(before);
     function save() {
-      if (tier === pr.tier) { setMsg('지금과 같은 등급이에요.'); return; }
+      var pp = parsePricing(draft);
+      if (pp.error) { setMsg(pp.error); return; }
+      var changed = pricingSummary(pp.value) !== pricingSummary(before);
+      if (tier === pr.tier && !changed) { setMsg('바뀐 내용이 없어요.'); return; }
       if (!reason.trim()) { setMsg('변경 근거를 적어 주세요.'); return; }
-      setMsg(null); ask.show();
+      setPricing(pp.value); setMsg(null); ask.show();
     }
     async function doSave() {
       setBusy(true);
       try {
-        await platform.db.doc('partners/' + pr.id).update({ tier: tier, tierChangedAt: new Date().toISOString() });
-        await writeLog({ type: 'tier', partnerId: pr.id, target: pr.company, reason: reason.trim(), result: pr.tier + ' → ' + tier, metrics: { sales: m.sales, closed: m.closed } });
+        var tierChanged = tier !== pr.tier, now = new Date().toISOString(), upd = {};
+        if (tierChanged) { upd.tier = tier; upd.tierChangedAt = now; }
+        if (pricingChanged) { upd.pricing = pricing; upd.pricingChangedAt = now; }
+        await platform.db.doc('partners/' + pr.id).update(upd);
+        var parts = [];
+        if (tierChanged) parts.push('등급 ' + pr.tier + ' → ' + tier);
+        if (pricingChanged) parts.push('할인율 ' + pricingSummary(before) + ' → ' + pricingSummary(pricing));
+        await writeLog({ type: tierChanged && pricingChanged ? 'terms' : tierChanged ? 'tier' : 'pricing', partnerId: pr.id, target: pr.company, reason: reason.trim(), result: parts.join(' / '), metrics: { sales: m.sales, closed: m.closed } });
         props.onClose();
       } catch (err) { setMsg(errText(err)); setBusy(false); }
     }
     if (ask.open) return h(ConfirmModal, {
-      title: pr.company + ' 등급을 바꿀까요?', subTitle: pr.tier + ' → ' + tier,
-      items: [['변경 근거', reason.trim()]], note: '파트너 포털에 바로 반영되고, 결정 기록에 남아요.', confirmLabel: '바꾸기',
+      title: pr.company + ' 조건을 바꿀까요?', subTitle: '파트너 포털과 등록된 딜의 할인율에 바로 반영돼요.',
+      items: [['등급', tier !== pr.tier ? pr.tier + ' → ' + tier : ''], ['할인율', pricingChanged ? pricingSummary(before) + ' → ' + pricingSummary(pricing) : ''], ['변경 근거', reason.trim()]],
+      note: '결정 기록에 남고, 기록은 고치거나 지울 수 없어요.', confirmLabel: '바꾸기',
       busy: ask.busy, onCancel: ask.hide, onConfirm: function () { ask.run(doSave); }
     });
-    return h(T.Modal, { open: true, title: pr.company + ' 등급 조정', subTitle: '판매 실적 ' + won(m.sales) + ' · 계약 딜 ' + m.closed + '건', size: 'md', headerClose: true, onClose: props.onClose },
-      h('div', { className: 'stack' },
+    return h(T.Modal, { open: true, title: pr.company + ' 등급·할인율 조정', subTitle: '판매 실적 ' + won(m.sales) + ' · 계약 딜 ' + m.closed + '건', size: 'lg', headerClose: true, onClose: props.onClose },
+      h('div', { className: 'stack', style: { maxHeight: '60vh', overflowY: 'auto', paddingRight: 4 } },
         h(Field, { label: '등급' }, h(T.Dropdown, { options: opts(TIERS.map(function (x) { return x.name; })), value: tier, onSelect: setTier })),
         P('body-sm-regular muted', TIERS.map(function (x) { return x.name + ' ' + (x.min ? won(x.min) + ' 이상' : '조건 없음'); }).join(' · ')),
+        h(Field, { label: '파트너 할인율' }, h(PricingEditor, { value: draft, onChange: setDraft })),
         h(Field, { label: '변경 근거', required: true, help: '인증 인력·레퍼런스 확인 내용 등을 적어 주세요.' }, h('textarea', { id: 't-reason', className: 'textarea', value: reason, onChange: function (ev) { setReason(ev.target.value); } })),
         msg ? h(Notice, { kind: 'danger' }, msg) : null),
-      h('div', { slot: 'buttons' }, h(T.Button, { variant: 'grayScaleFilled', onClick: props.onClose }, '취소'), h(T.Button, { variant: 'primaryFilled', pending: busy, disabled: busy, onClick: save }, '등급 바꾸기')));
+      h('div', { slot: 'buttons' }, h(T.Button, { variant: 'grayScaleFilled', onClick: props.onClose }, '취소'), h(T.Button, { variant: 'primaryFilled', pending: busy, disabled: busy, onClick: save }, '변경하기')));
   }
 
   function AdminDeals(props) {
@@ -1371,7 +1430,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
       } catch (err) { setMsg(errText(err)); setBusy(false); }
     }
     var info = [['파트너', (props.partner || {}).company], ['고객사', d.customer + ' · ' + segLabel(d.segment)], ['제품', productLabel(d)], ['Timely AI', d.ai ? won(d.ai) + ' · 할인율 ' + rateLabel(d) : '-'],
-      ['Timely Router', d.router ? won(d.router) + ' · 별도 기준' : '-'], ['예상 계약 시점', d.close], ['단계', d.stage], ['메모', d.memo], ['보호 만료', d.protectEnd || '-']];
+      ['Timely Router', d.router ? won(d.router) + ' · 할인율 ' + routerRateLabel(d) : '-'], ['예상 계약 시점', d.close], ['단계', d.stage], ['메모', d.memo], ['보호 만료', d.protectEnd || '-']];
     if (ask.open) return h(ConfirmModal, {
       title: d.customer + ' 딜을 처리할까요?', subTitle: act + (act === '동일 고객 합산 판단' ? ' · ' + merge : ''),
       items: [['파트너', (props.partner || {}).company], ['판단 근거', reason.trim()]],
@@ -1440,7 +1499,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
         h('div', { className: 'form-grid' },
           h(Field, { label: '파트너' }, h(T.Dropdown, { options: approved.map(function (x) { return { label: x.company, value: x.id }; }), value: pidEff, onSelect: setPid })),
           h(Field, { label: '대상 기간', required: true }, h(Input, { id: 'rb-period', value: form.period, onValue: set('period'), placeholder: '2026 하반기' }))),
-        h('div', { className: 'kpis' }, Kpi('판매 실적 (계약 완료)', won(mt.sales)), Kpi('계약 완료 딜', mt.closed + '건'), Kpi('Timely AI 할인 합계', won(mt.aiDiscount))),
+        h('div', { className: 'kpis' }, Kpi('판매 실적 (계약 완료)', won(mt.sales)), Kpi('계약 완료 딜', mt.closed + '건'), Kpi('파트너 할인 합계', won(mt.aiDiscount))),
         h(Field, { label: '정성 평가 항목' }, h(MultiCheck, { options: QUAL, value: form.checks, onValue: set('checks') })),
         h(Field, { label: '정성 평가 의견 (내부)', required: true }, h('textarea', { id: 'rb-q', className: 'textarea', value: form.qualitative, onChange: function (ev) { set('qualitative')(ev.target.value); }, placeholder: '정량·정성 판단을 종합한 근거' })),
         h('div', { className: 'form-grid' },
