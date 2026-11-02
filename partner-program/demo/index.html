@@ -378,6 +378,307 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
       props.children || '신청서와 딜은 claude.ai 에 로그인한 조직 구성원이 이 페이지를 열었을 때 저장돼요. 링크를 claude.ai 에서 열어 주세요.');
   }
 
+  /* ───────── 회원 (데모) ─────────
+     실제 서비스는 서버가 인증 코드를 만들고 메일로 보내며, 비밀번호 해시·잠금도 서버가 맡는다.
+     이 데모는 같은 절차를 화면에서 재현한다: 코드는 브라우저에서 만들고 '데모 메일함'에 보여 준다.
+     계정은 보는 사람(claude.ai 구성원)마다 accounts/<id> 하나로 저장된다. */
+  var FREE_MAIL = ['gmail.com', 'googlemail.com', 'naver.com', 'daum.net', 'hanmail.net', 'kakao.com', 'nate.com', 'hotmail.com', 'outlook.com', 'live.com', 'msn.com', 'yahoo.com', 'yahoo.co.kr', 'icloud.com', 'me.com', 'proton.me', 'protonmail.com', 'aol.com', 'gmx.com', 'zoho.com'];
+  var CODE_TTL = 300, RESEND_WAIT = 60, CODE_TRIES = 5, LOGIN_TRIES = 5, LOCK_MIN = 5;
+  function emailError(email) {
+    email = String(email || '').trim().toLowerCase();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return '이메일 형식을 확인해 주세요.';
+    if (FREE_MAIL.indexOf(email.split('@')[1]) >= 0) return '개인 메일로는 가입할 수 없어요. 회사 도메인 이메일을 입력해 주세요.';
+    return null;
+  }
+  function pwError(pw) {
+    if (!pw || pw.length < 8) return '비밀번호는 8자 이상이어야 해요.';
+    if (!/[A-Za-z]/.test(pw) || !/\d/.test(pw) || !/[^A-Za-z0-9]/.test(pw)) return '영문, 숫자, 특수문자를 모두 넣어 주세요.';
+    return null;
+  }
+  function phoneOk(v) { return /^01[016789]-?\d{3,4}-?\d{4}$/.test(String(v || '').trim()); }
+  function normPhone(v) { return String(v || '').replace(/\D/g, ''); }
+  function maskEmail(email) {
+    var parts = String(email).split('@'), id = parts[0];
+    return (id.length <= 2 ? id[0] + '*' : id.slice(0, 2) + '*'.repeat(Math.max(1, id.length - 2))) + '@' + parts[1];
+  }
+  function randomCode() {
+    var a = new Uint32Array(1); crypto.getRandomValues(a);
+    return String(a[0] % 1000000).padStart(6, '0');
+  }
+  function randomSalt() {
+    var a = new Uint8Array(16); crypto.getRandomValues(a);
+    return Array.prototype.map.call(a, function (x) { return x.toString(16).padStart(2, '0'); }).join('');
+  }
+  async function hashPw(pw, salt) {
+    var buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(salt + ':' + pw));
+    return Array.prototype.map.call(new Uint8Array(buf), function (x) { return x.toString(16).padStart(2, '0'); }).join('');
+  }
+  function mmss(sec) { sec = Math.max(0, sec); return String(Math.floor(sec / 60)).padStart(2, '0') + ':' + String(sec % 60).padStart(2, '0'); }
+
+  // 로그인 상태: 이 브라우저에 로그인한 이메일만 기억한다(편의 기능). 계정 문서와 맞아야 로그인으로 본다.
+  var SESSION_KEY = 'tpn-session';
+  var session = { email: null, listeners: [] };
+  try { session.email = localStorage.getItem(SESSION_KEY); } catch (e) {}
+  function setSession(email) {
+    session.email = email;
+    try { if (email) localStorage.setItem(SESSION_KEY, email); else localStorage.removeItem(SESSION_KEY); } catch (e) {}
+    session.listeners.forEach(function (fn) { fn(); });
+  }
+  function useAuth() {
+    var p = usePlatform();
+    var s = useState(0), bump = s[1];
+    useEffect(function () {
+      var fn = function () { bump(function (x) { return x + 1; }); };
+      session.listeners.push(fn);
+      return function () { session.listeners = session.listeners.filter(function (x) { return x !== fn; }); };
+    }, []);
+    var acc = useDoc(p.uid ? 'accounts/' + p.uid : null);
+    var loggedIn = !!(acc.data && session.email && acc.data.email === session.email);
+    return { ready: p.ready && !acc.loading, account: acc.data, user: loggedIn ? acc.data : null };
+  }
+  var afterLogin = 'portal';
+
+  function AuthShell(props) {
+    return h('section', { className: 'section' }, h('div', { className: 'wrap' },
+      h('div', { className: 'box stack', style: { maxWidth: 460, margin: '0 auto', padding: 32, gap: 20 } },
+        h('div', { className: 'stack-s' }, h('h1', { className: 'head-md-bold title', style: { margin: 0 } }, props.title), props.desc ? P('body-md-regular muted', props.desc) : null),
+        props.children,
+        props.footer ? h('div', { className: 'row body-md-regular muted', style: { justifyContent: 'center', gap: 4, borderTop: '1px solid var(--color-borders-default)', paddingTop: 16 } }, props.footer) : null)));
+  }
+  function LinkBtn(label, onClick) { return h('button', { type: 'button', className: 'nav-link', style: { padding: '4px 6px' }, onClick: onClick }, label); }
+
+  function RequireLogin(props) {
+    var p = usePlatform(), auth = useAuth();
+    if (!auth.ready) return h('div', { className: 'wrap section' }, P('body-md-regular muted', '불러오는 중이에요.'));
+    if (!p.db || !p.uid) return h('div', { className: 'wrap section stack' }, PageHead(props.title), h(Unavailable));
+    if (auth.user) return props.children(auth.user);
+    return h(AuthShell, { title: props.title + '은(는) 로그인 후 쓸 수 있어요', desc: '파트너 계정으로 로그인해 주세요. 계정이 없으면 회사 이메일로 가입할 수 있어요.' },
+      h('div', { className: 'stack-s' },
+        h(T.Button, { variant: 'primaryFilled', className: 'w-full', onClick: function () { afterLogin = props.next; props.go('login'); } }, '로그인'),
+        h(T.Button, { variant: 'grayScaleOutline', className: 'w-full', onClick: function () { afterLogin = props.next; props.go('signup'); } }, '회원가입')));
+  }
+
+  // 회사 이메일 → 인증 코드(데모 메일함) → 확인. 회원가입과 비밀번호 찾기에서 함께 쓴다.
+  function EmailVerify(props) {
+    var e = useState(''), email = e[0], setEmail = e[1];
+    var c = useState(null), sent = c[0], setSent = c[1];   // { email, code, expires, resendAt, tries }
+    var i = useState(''), input = i[0], setInput = i[1];
+    var m = useState(null), msg = m[0], setMsg = m[1];
+    var n = useState(Date.now()), now = n[0], setNow = n[1];
+    useEffect(function () { if (!sent) return; var t = setInterval(function () { setNow(Date.now()); }, 1000); return function () { clearInterval(t); }; }, [sent]);
+    var left = sent ? Math.round((sent.expires - now) / 1000) : 0, resendLeft = sent ? Math.round((sent.resendAt - now) / 1000) : 0;
+
+    function send() {
+      var addr = email.trim().toLowerCase(), err = emailError(addr) || (props.check && props.check(addr));
+      if (err) { setMsg({ kind: 'danger', text: err }); return; }
+      var t = Date.now();
+      setSent({ email: addr, code: randomCode(), expires: t + CODE_TTL * 1000, resendAt: t + RESEND_WAIT * 1000, tries: 0 });
+      setInput(''); setNow(t);
+      setMsg({ kind: 'ok', text: addr + ' 으로 인증 코드를 보냈어요. ' + (CODE_TTL / 60) + '분 안에 입력해 주세요.' });
+    }
+    function verify() {
+      if (!sent) return;
+      if (left <= 0) { setMsg({ kind: 'danger', text: '인증 시간이 지났어요. 코드를 다시 받아 주세요.' }); return; }
+      if (sent.tries >= CODE_TRIES) { setMsg({ kind: 'danger', text: '입력 횟수를 넘었어요. 코드를 다시 받아 주세요.' }); return; }
+      if (!/^\d{6}$/.test(input)) { setMsg({ kind: 'danger', text: '6자리 숫자를 입력해 주세요.' }); return; }
+      if (input !== sent.code) {
+        var tries = sent.tries + 1;
+        setSent(Object.assign({}, sent, { tries: tries }));
+        setMsg({ kind: 'danger', text: tries >= CODE_TRIES ? '입력 횟수를 넘었어요. 코드를 다시 받아 주세요.' : '인증 코드가 맞지 않아요. (' + tries + '/' + CODE_TRIES + ')' });
+        return;
+      }
+      props.onVerified(sent.email);
+    }
+    return h('div', { className: 'stack' },
+      h(Field, { label: '회사 이메일', required: true, help: '개인 메일(gmail, naver 등)은 쓸 수 없어요.' },
+        h('div', { className: 'row', style: { flexWrap: 'nowrap' } },
+          h('div', { style: { flex: 1, minWidth: 0 } }, h(Input, { id: 'a-email', type: 'email', value: email, onValue: function (v) { setEmail(v); if (sent && v.trim().toLowerCase() !== sent.email) { setSent(null); setMsg(null); } }, placeholder: 'name@company.co.kr', autoComplete: 'email' })),
+          h(T.Button, { type: 'button', variant: sent ? 'grayScaleOutline' : 'primaryFilled', disabled: sent && resendLeft > 0, onClick: send },
+            !sent ? '인증 메일 보내기' : resendLeft > 0 ? '재전송 ' + resendLeft + '초' : '다시 보내기'))),
+      sent ? h('div', { className: 'notice', role: 'status' },
+        P('body-sm-medium', '데모 메일함 · 실제 메일은 보내지 않아요'),
+        h('p', { className: 'body-md-regular body', style: { marginTop: 4 } }, '받는 사람 ' + sent.email + ' · 인증 코드 ', h('b', { className: 'num', style: { letterSpacing: 2 } }, sent.code))) : null,
+      sent ? h(Field, { label: '인증 코드', required: true, help: left > 0 ? '남은 시간 ' + mmss(left) : '인증 시간이 지났어요.' },
+        h('div', { className: 'row', style: { flexWrap: 'nowrap' } },
+          h('div', { style: { flex: 1, minWidth: 0 } }, h(Input, { id: 'a-code', inputMode: 'numeric', maxLength: 6, autoComplete: 'one-time-code', value: input, onValue: function (v) { setInput(v.replace(/\D/g, '').slice(0, 6)); }, placeholder: '6자리 숫자' })),
+          h(T.Button, { type: 'button', variant: 'primaryFilled', onClick: verify }, '확인'))) : null,
+      msg ? h(Notice, { kind: msg.kind }, msg.text) : null);
+  }
+
+  function Signup(props) {
+    var p = usePlatform(), auth = useAuth();
+    var v = useState(null), verified = v[0], setVerified = v[1];
+    var s = useState({ name: '', phone: '', company: '', pw: '', pw2: '', terms: false, privacy: false }), f = s[0], setF = s[1];
+    var e = useState({}), errs = e[0], setErrs = e[1];
+    var m = useState(null), msg = m[0], setMsg = m[1];
+    var d = useState(false), done = d[0], setDone = d[1];
+    var ask = useAsk();
+    function set(k) { return function (x) { var n = Object.assign({}, f); n[k] = x; setF(n); }; }
+    if (!auth.ready) return h('div', { className: 'wrap section' }, P('body-md-regular muted', '불러오는 중이에요.'));
+    if (!p.db || !p.uid) return h('div', { className: 'wrap section stack' }, PageHead('회원가입'), h(Unavailable));
+    if (auth.account && !done) return h(AuthShell, { title: '이미 가입한 계정이 있어요', desc: '이 claude.ai 계정에는 ' + maskEmail(auth.account.email) + ' 파트너 계정이 연결되어 있어요.' },
+      h(T.Button, { variant: 'primaryFilled', className: 'w-full', onClick: function () { props.go('login'); } }, '로그인하기'));
+
+    function submit(ev) {
+      ev.preventDefault();
+      var next = {};
+      if (!f.name.trim()) next.name = '이름을 입력해 주세요.';
+      if (!phoneOk(f.phone)) next.phone = '휴대폰 번호를 확인해 주세요.';
+      if (!f.company.trim()) next.company = '회사명을 입력해 주세요.';
+      var pe = pwError(f.pw); if (pe) next.pw = pe;
+      if (f.pw !== f.pw2) next.pw2 = '비밀번호가 서로 달라요.';
+      if (!f.terms || !f.privacy) next.agree = '필수 동의 항목에 동의해 주세요.';
+      setErrs(next);
+      if (Object.keys(next).length) return;
+      ask.show();
+    }
+    async function doSave() {
+      try {
+        var salt = randomSalt(), now = new Date().toISOString();
+        await p.db.doc('accounts/' + p.uid).set({ email: verified, name: f.name.trim(), phone: normPhone(f.phone), company: f.company.trim(),
+          salt: salt, pwHash: await hashPw(f.pw, salt), verifiedAt: now, createdAt: now, failCount: 0, lockedUntil: null, agreedAt: now });
+        setSession(verified);
+        setDone(true);
+      } catch (err) { setMsg(errText(err)); }
+    }
+    var title = '회원가입', desc = '회사 이메일 인증 후 가입할 수 있어요.';
+    var body;
+    if (!verified) body = h(EmailVerify, { onVerified: setVerified });
+    else body = h('form', { className: 'stack', onSubmit: submit, noValidate: true },
+      h(Notice, { kind: 'ok' }, verified + ' 인증을 마쳤어요.'),
+      h(Field, { label: '이름', required: true, error: !!errs.name, help: errs.name }, h(Input, { id: 's-name', value: f.name, onValue: set('name'), autoComplete: 'name', error: !!errs.name })),
+      h(Field, { label: '휴대폰 번호', required: true, error: !!errs.phone, help: errs.phone || 'ID를 찾을 때 써요.' }, h(Input, { id: 's-phone', type: 'tel', value: f.phone, onValue: set('phone'), placeholder: '010-0000-0000', autoComplete: 'tel', error: !!errs.phone })),
+      h(Field, { label: '회사명', required: true, error: !!errs.company, help: errs.company }, h(Input, { id: 's-company', value: f.company, onValue: set('company'), autoComplete: 'organization', error: !!errs.company })),
+      h(Field, { label: '비밀번호', required: true, error: !!errs.pw, help: errs.pw || '영문, 숫자, 특수문자를 모두 넣어 8자 이상' }, h(Input, { id: 's-pw', type: 'password', value: f.pw, onValue: set('pw'), autoComplete: 'new-password', error: !!errs.pw })),
+      h(Field, { label: '비밀번호 확인', required: true, error: !!errs.pw2, help: errs.pw2 }, h(Input, { id: 's-pw2', type: 'password', value: f.pw2, onValue: set('pw2'), autoComplete: 'new-password', error: !!errs.pw2 })),
+      h('div', { className: 'stack-s' },
+        h(T.Checkbox, { checked: f.terms, onChange: set('terms'), suffix: h('span', { className: 'body-md-regular' }, '[필수] 서비스 이용약관에 동의해요.') }),
+        h(T.Checkbox, { checked: f.privacy, onChange: set('privacy'), suffix: h('span', { className: 'body-md-regular' }, '[필수] 개인정보 수집·이용에 동의해요.') }),
+        errs.agree ? P('body-sm-regular', errs.agree) : null),
+      msg ? h(Notice, { kind: 'danger' }, msg) : null,
+      h(T.Button, { variant: 'primaryFilled', type: 'submit', className: 'w-full' }, '가입하기'));
+
+    return h(F, null,
+      ask.open ? h(ConfirmModal, { title: '이 정보로 가입할까요?', items: [['회사 이메일 (ID)', verified], ['이름', f.name.trim()], ['휴대폰', f.phone.trim()], ['회사명', f.company.trim()]],
+        note: '가입하면 바로 로그인돼요.', confirmLabel: '가입하기', busy: ask.busy, onCancel: ask.hide, onConfirm: function () { ask.run(doSave); } }) : null,
+      done ? h(T.Modal, { open: true, size: 'sm', title: '가입을 마쳤어요', subTitle: verified + ' 계정으로 로그인했어요.' },
+        P('body-md-regular muted', afterLogin === 'apply' ? '이어서 파트너 신청서를 작성해 주세요.' : '파트너 신청서를 내면 본사 검토 후 포털을 쓸 수 있어요.'),
+        h('div', { slot: 'buttons' }, h(T.Button, { variant: 'primaryFilled', className: 'w-full', onClick: function () { setDone(false); props.go(afterLogin === 'portal' ? 'apply' : afterLogin); } }, '파트너 신청하러 가기'))) : null,
+      h(AuthShell, { title: title, desc: desc, footer: [h('span', { key: 'a' }, '이미 계정이 있나요?'), h(F, { key: 'b' }, LinkBtn('로그인', function () { props.go('login'); }))] }, body));
+  }
+
+  function Login(props) {
+    var p = usePlatform(), auth = useAuth();
+    var e = useState(''), email = e[0], setEmail = e[1];
+    var w = useState(''), pw = w[0], setPw = w[1];
+    var m = useState(null), msg = m[0], setMsg = m[1];
+    var b = useState(false), busy = b[0], setBusy = b[1];
+    if (!auth.ready) return h('div', { className: 'wrap section' }, P('body-md-regular muted', '불러오는 중이에요.'));
+    if (!p.db || !p.uid) return h('div', { className: 'wrap section stack' }, PageHead('로그인'), h(Unavailable));
+    if (auth.user) return h(AuthShell, { title: '로그인되어 있어요', desc: auth.user.name + ' · ' + auth.user.email },
+      h(T.Button, { variant: 'primaryFilled', className: 'w-full', onClick: function () { props.go('portal'); } }, '파트너 포털로 가기'));
+    async function submit(ev) {
+      ev.preventDefault();
+      var addr = email.trim().toLowerCase(), acc = auth.account;
+      if (!addr || !pw) { setMsg('회사 이메일과 비밀번호를 입력해 주세요.'); return; }
+      if (acc && acc.email === addr && acc.lockedUntil && new Date(acc.lockedUntil) > new Date()) {
+        setMsg('비밀번호를 ' + LOGIN_TRIES + '번 틀려 잠겼어요. ' + new Date(acc.lockedUntil).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }) + ' 이후에 다시 시도하거나 비밀번호를 재설정해 주세요.'); return;
+      }
+      setBusy(true);
+      try {
+        if (!acc || acc.email !== addr) { setMsg('회사 이메일 또는 비밀번호가 맞지 않아요.'); return; }
+        if ((await hashPw(pw, acc.salt)) !== acc.pwHash) {
+          var fails = (acc.failCount || 0) + 1, lock = fails >= LOGIN_TRIES;
+          await p.db.doc('accounts/' + p.uid).update({ failCount: lock ? 0 : fails, lockedUntil: lock ? new Date(Date.now() + LOCK_MIN * 60000).toISOString() : null });
+          setMsg(lock ? '비밀번호를 ' + LOGIN_TRIES + '번 틀려 ' + LOCK_MIN + '분 동안 로그인할 수 없어요.' : '회사 이메일 또는 비밀번호가 맞지 않아요. (' + fails + '/' + LOGIN_TRIES + ')');
+          return;
+        }
+        await p.db.doc('accounts/' + p.uid).update({ failCount: 0, lockedUntil: null, lastLoginAt: new Date().toISOString() });
+        setSession(addr);
+        var next = afterLogin; afterLogin = 'portal';
+        props.go(next);
+      } catch (err) { setMsg(errText(err)); }
+      finally { setBusy(false); }
+    }
+    return h(AuthShell, { title: '로그인', desc: '파트너 계정(회사 이메일)으로 로그인해 주세요.',
+      footer: [h(F, { key: 'a' }, LinkBtn('ID 찾기', function () { props.go('findid'); })), h('span', { key: 'b', 'aria-hidden': 'true' }, '·'),
+        h(F, { key: 'c' }, LinkBtn('비밀번호 찾기', function () { props.go('findpw'); })), h('span', { key: 'd', 'aria-hidden': 'true' }, '·'),
+        h(F, { key: 'e' }, LinkBtn('회원가입', function () { props.go('signup'); }))] },
+      h('form', { className: 'stack', onSubmit: submit, noValidate: true },
+        h(Field, { label: '회사 이메일 (ID)' }, h(Input, { id: 'l-email', type: 'email', value: email, onValue: setEmail, autoComplete: 'username' })),
+        h(Field, { label: '비밀번호' }, h(Input, { id: 'l-pw', type: 'password', value: pw, onValue: setPw, autoComplete: 'current-password' })),
+        msg ? h(Notice, { kind: 'danger' }, msg) : null,
+        h(T.Button, { variant: 'primaryFilled', type: 'submit', className: 'w-full', pending: busy, disabled: busy }, '로그인')));
+  }
+
+  function FindId(props) {
+    var p = usePlatform(), auth = useAuth();
+    var n = useState(''), name = n[0], setName = n[1];
+    var ph = useState(''), phone = ph[0], setPhone = ph[1];
+    var r = useState(null), result = r[0], setResult = r[1];
+    if (!auth.ready) return h('div', { className: 'wrap section' }, P('body-md-regular muted', '불러오는 중이에요.'));
+    if (!p.db || !p.uid) return h('div', { className: 'wrap section stack' }, PageHead('ID 찾기'), h(Unavailable));
+    function submit(ev) {
+      ev.preventDefault();
+      if (!name.trim() || !phoneOk(phone)) { setResult({ kind: 'danger', text: '이름과 휴대폰 번호를 정확히 입력해 주세요.' }); return; }
+      var acc = auth.account;
+      if (acc && acc.name === name.trim() && acc.phone === normPhone(phone)) setResult({ kind: 'ok', email: acc.email });
+      else setResult({ kind: 'danger', text: '입력한 정보와 일치하는 계정이 없어요.' });
+    }
+    return h(AuthShell, { title: 'ID 찾기', desc: '가입할 때 입력한 이름과 휴대폰 번호로 회사 이메일(ID)을 찾아요.',
+      footer: [h(F, { key: 'a' }, LinkBtn('로그인', function () { props.go('login'); })), h('span', { key: 'b', 'aria-hidden': 'true' }, '·'), h(F, { key: 'c' }, LinkBtn('비밀번호 찾기', function () { props.go('findpw'); }))] },
+      h('form', { className: 'stack', onSubmit: submit, noValidate: true },
+        h(Field, { label: '이름' }, h(Input, { id: 'fi-name', value: name, onValue: setName })),
+        h(Field, { label: '휴대폰 번호' }, h(Input, { id: 'fi-phone', type: 'tel', value: phone, onValue: setPhone, placeholder: '010-0000-0000' })),
+        result ? (result.email
+          ? h(Notice, { kind: 'ok', title: '가입한 회사 이메일이에요' }, h('span', { className: 'num' }, maskEmail(result.email)))
+          : h(Notice, { kind: 'danger' }, result.text)) : null,
+        h(T.Button, { variant: result && result.email ? 'grayScaleOutline' : 'primaryFilled', type: 'submit', className: 'w-full' }, 'ID 찾기'),
+        result && result.email ? h(T.Button, { variant: 'primaryFilled', type: 'button', className: 'w-full', onClick: function () { props.go('login'); } }, '로그인하기') : null));
+  }
+
+  function FindPw(props) {
+    var p = usePlatform(), auth = useAuth();
+    var v = useState(null), verified = v[0], setVerified = v[1];
+    var a = useState(''), pw = a[0], setPw = a[1];
+    var b = useState(''), pw2 = b[0], setPw2 = b[1];
+    var e = useState({}), errs = e[0], setErrs = e[1];
+    var d = useState(false), done = d[0], setDone = d[1];
+    var m = useState(null), msg = m[0], setMsg = m[1];
+    var ask = useAsk();
+    if (!auth.ready) return h('div', { className: 'wrap section' }, P('body-md-regular muted', '불러오는 중이에요.'));
+    if (!p.db || !p.uid) return h('div', { className: 'wrap section stack' }, PageHead('비밀번호 찾기'), h(Unavailable));
+    function submit(ev) {
+      ev.preventDefault();
+      var next = {}, pe = pwError(pw);
+      if (pe) next.pw = pe;
+      if (pw !== pw2) next.pw2 = '비밀번호가 서로 달라요.';
+      setErrs(next);
+      if (!Object.keys(next).length) ask.show();
+    }
+    async function doSave() {
+      try {
+        var salt = randomSalt();
+        await p.db.doc('accounts/' + p.uid).update({ salt: salt, pwHash: await hashPw(pw, salt), failCount: 0, lockedUntil: null, pwChangedAt: new Date().toISOString() });
+        setSession(null);
+        setDone(true);
+      } catch (err) { setMsg(errText(err)); }
+    }
+    var check = function (addr) { return auth.account && auth.account.email === addr ? null : '가입한 회사 이메일이 아니에요. ID 찾기로 먼저 확인해 주세요.'; };
+    return h(F, null,
+      ask.open ? h(ConfirmModal, { title: '비밀번호를 바꿀까요?', subTitle: verified, note: '바꾸면 새 비밀번호로 다시 로그인해야 해요.', confirmLabel: '바꾸기', busy: ask.busy, onCancel: ask.hide, onConfirm: function () { ask.run(doSave); } }) : null,
+      done ? h(T.Modal, { open: true, size: 'sm', title: '비밀번호를 바꿨어요', subTitle: '새 비밀번호로 로그인해 주세요.' },
+        h('div', { slot: 'buttons' }, h(T.Button, { variant: 'primaryFilled', className: 'w-full', onClick: function () { setDone(false); props.go('login'); } }, '로그인하러 가기'))) : null,
+      h(AuthShell, { title: '비밀번호 찾기', desc: '회사 이메일로 받은 인증 코드를 확인한 뒤 새 비밀번호를 정해요.',
+        footer: [h(F, { key: 'a' }, LinkBtn('로그인', function () { props.go('login'); })), h('span', { key: 'b', 'aria-hidden': 'true' }, '·'), h(F, { key: 'c' }, LinkBtn('ID 찾기', function () { props.go('findid'); }))] },
+        !verified ? h(EmailVerify, { check: check, onVerified: setVerified }) : h('form', { className: 'stack', onSubmit: submit, noValidate: true },
+          h(Notice, { kind: 'ok' }, verified + ' 인증을 마쳤어요.'),
+          h(Field, { label: '새 비밀번호', required: true, error: !!errs.pw, help: errs.pw || '영문, 숫자, 특수문자를 모두 넣어 8자 이상' }, h(Input, { id: 'fp-pw', type: 'password', value: pw, onValue: setPw, autoComplete: 'new-password', error: !!errs.pw })),
+          h(Field, { label: '새 비밀번호 확인', required: true, error: !!errs.pw2, help: errs.pw2 }, h(Input, { id: 'fp-pw2', type: 'password', value: pw2, onValue: setPw2, autoComplete: 'new-password', error: !!errs.pw2 })),
+          msg ? h(Notice, { kind: 'danger' }, msg) : null,
+          h(T.Button, { variant: 'primaryFilled', type: 'submit', className: 'w-full' }, '비밀번호 바꾸기'))));
+  }
+
   /* ───────── 상단 바 ───────── */
   function TopBar(props) {
     var items = [['home', '프로그램 소개', 'secondary'], ['apply', '파트너 신청'], ['portal', '파트너 포털']];
@@ -389,7 +690,10 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
           h('span', { className: 'head-sm-bold brand-text' }, 'Timely Partner Network')),
         h('nav', { className: 'nav body-md-medium', 'aria-label': '주요 메뉴' }, items.map(function (it) {
           return h('button', { key: it[0], className: 'nav-link ' + (it[2] || ''), 'aria-current': props.view === it[0] ? 'page' : null, onClick: function () { props.go(it[0]); } }, it[1]);
-        }))));
+        }).concat(props.user
+          ? [h('span', { key: 'who', className: 'body-sm-medium muted brand-text', style: { padding: '0 6px', whiteSpace: 'nowrap' } }, props.user.name + '님'),
+             h('button', { key: 'out', className: 'nav-link', onClick: props.onLogout }, '로그아웃')]
+          : [h('button', { key: 'in', className: 'nav-link', 'aria-current': props.view === 'login' ? 'page' : null, onClick: function () { props.go('login'); } }, '로그인')]))));
   }
 
   /* ───────── 랜딩 ───────── */
@@ -491,6 +795,9 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
     ['size', '회사 규모'], ['type', '파트너 유형'], ['regions', '주요 영업 지역'], ['segments', '주요 고객군'], ['products', '관심 제품']
   ];
   function Apply(props) {
+    return h(RequireLogin, { title: '파트너 신청', next: 'apply', go: props.go }, function (user) { return h(ApplyForm, { go: props.go, user: user }); });
+  }
+  function ApplyForm(props) {
     var p = usePlatform();
     var mine = useDoc(p.uid ? 'applications/' + p.uid : null);
     var partner = useDoc(p.uid ? 'partners/' + p.uid : null);
@@ -504,7 +811,10 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
 
     useEffect(function () {
       if (mine.data && lk !== 'loaded') { setF(Object.assign({}, EMPTY_APP, mine.data)); setLk('loaded'); }
-    }, [mine.data]);
+      else if (!mine.loading && !mine.data && lk !== 'prefilled' && lk !== 'loaded') {
+        var u = props.user; setF(Object.assign({}, EMPTY_APP, { name: u.name, email: u.email, phone: u.phone, company: u.company })); setLk('prefilled');
+      }
+    }, [mine.data, mine.loading]);
     function set(k) { return function (v) { var n = Object.assign({}, f); n[k] = v; setF(n); }; }
 
     var canSave = !!(p.db && p.uid);
@@ -610,6 +920,9 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
 
   /* ───────── 파트너 포털 ───────── */
   function Portal(props) {
+    return h(RequireLogin, { title: '파트너 포털', next: 'portal', go: props.go }, function () { return h(PortalGate, { go: props.go }); });
+  }
+  function PortalGate(props) {
     var p = usePlatform();
     var partner = useDoc(p.uid ? 'partners/' + p.uid : null);
     var app = useDoc(p.uid ? 'applications/' + p.uid : null);
@@ -1146,7 +1459,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
   }
 
   /* ───────── 앱 ───────── */
-  var VIEWS = ['home', 'apply', 'portal', 'admin'];
+  var VIEWS = ['home', 'apply', 'portal', 'admin', 'login', 'signup', 'findid', 'findpw'];
   function App() {
     var p = usePlatform();
     var initial = (location.hash || '').replace('#', '');
@@ -1157,8 +1470,10 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
       window.addEventListener('hashchange', onHash);
       return function () { window.removeEventListener('hashchange', onHash); };
     }, []);
-    var body = view === 'apply' ? h(Apply, { go: go }) : view === 'portal' ? h(Portal, { go: go }) : view === 'admin' ? h(Admin, { go: go }) : h(Home, { go: go });
-    return h(F, null, h(TopBar, { view: view, go: go, canEdit: p.canEdit }), body);
+    var auth = useAuth();
+    var screens = { apply: Apply, portal: Portal, admin: Admin, login: Login, signup: Signup, findid: FindId, findpw: FindPw };
+    var body = h(screens[view] || Home, { go: go });
+    return h(F, null, h(TopBar, { view: view, go: go, canEdit: p.canEdit, user: auth.user, onLogout: function () { setSession(null); go('home'); } }), body);
   }
   ReactDOM.createRoot(document.getElementById('app')).render(h(App));
 })();
