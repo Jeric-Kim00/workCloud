@@ -356,6 +356,23 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
       h('div', { className: 'stack-s' }, P('head-md-bold title', title), desc ? P('body-lg-regular muted', desc) : null),
       action || null);
   }
+  // 저장·제출 전에 한 번 더 묻는 확인 팝업. 취소하면 아무것도 바뀌지 않는다.
+  function ConfirmModal(props) {
+    return h(T.Modal, { open: true, size: 'sm', title: props.title, subTitle: props.subTitle, onClose: props.busy ? function () {} : props.onCancel },
+      h('div', { className: 'stack-s body-md-regular' },
+        props.items ? h('dl', { className: 'kv', style: { gridTemplateColumns: '96px minmax(0, 1fr)' } }, props.items.filter(function (kv) { return kv[1]; }).map(function (kv) { return h(F, { key: kv[0] }, h('dt', null, kv[0]), h('dd', null, kv[1])); })) : null,
+        props.note ? P('body-sm-regular muted', props.note) : null),
+      h('div', { slot: 'buttons' },
+        h(T.Button, { variant: 'grayScaleFilled', disabled: props.busy, onClick: props.onCancel }, '취소'),
+        h(T.Button, { variant: props.danger ? 'dangerFilled' : 'primaryFilled', pending: props.busy, disabled: props.busy, onClick: props.onConfirm }, props.confirmLabel || '확인')));
+  }
+  function useAsk() {
+    var s = useState(false), ask = s[0], setAsk = s[1];
+    var b = useState(false), busy = b[0], setBusy = b[1];
+    return { open: ask, busy: busy, show: function () { setAsk(true); }, hide: function () { if (!busy) setAsk(false); },
+      run: async function (fn) { setBusy(true); try { await fn(); } finally { setBusy(false); setAsk(false); } } };
+  }
+
   function Unavailable(props) {
     return h(Notice, { kind: 'warn', title: props.title || '이 화면에서는 저장 기능을 쓸 수 없어요' },
       props.children || '신청서와 딜은 claude.ai 에 로그인한 조직 구성원이 이 페이지를 열었을 때 저장돼요. 링크를 claude.ai 에서 열어 주세요.');
@@ -483,6 +500,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
     var b = useState(false), busy = b[0], setBusy = b[1];
     var loadedKey = useState(null), lk = loadedKey[0], setLk = loadedKey[1];
     var dn = useState(null), done = dn[0], setDone = dn[1];
+    var ask = useAsk();
 
     useEffect(function () {
       if (mine.data && lk !== 'loaded') { setF(Object.assign({}, EMPTY_APP, mine.data)); setLk('loaded'); }
@@ -502,6 +520,10 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
       setErrs(next);
       if (Object.keys(next).length) { setMsg({ kind: 'danger', text: '빠진 항목이 ' + Object.keys(next).length + '개 있어요. 빨간 표시를 확인해 주세요.' }); return; }
       if (!canSave) return;
+      setMsg(null);
+      ask.show();
+    }
+    async function doSubmit() {
       setBusy(true);
       try {
         var body = Object.assign({}, f, { uid: p.uid, submittedAt: (mine.data && mine.data.submittedAt) || new Date().toISOString(), updatedAt: new Date().toISOString() });
@@ -531,7 +553,14 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
       })),
       h('div', { slot: 'buttons' }, h(T.Button, { variant: 'primaryFilled', className: 'w-full', onClick: function () { setDone(null); props.go('home'); } }, '확인'))) : null;
 
-    return h('section', { className: 'section' }, doneModal, h('div', { className: 'wrap stack', style: { maxWidth: 840, gap: 24 } },
+    var askModal = ask.open ? h(ConfirmModal, {
+      title: mine.data ? '고친 신청서를 다시 낼까요?' : '신청서를 낼까요?', subTitle: '내용을 한 번 더 확인해 주세요.',
+      items: [['회사명', f.company], ['담당자', f.name + ' · ' + f.title], ['회사 이메일', f.email], ['파트너 유형', f.type], ['관심 제품', (f.products || []).join(', ')]],
+      note: '검토 중에는 신청서를 고쳐서 다시 낼 수 있어요.', confirmLabel: '제출하기', busy: ask.busy,
+      onCancel: ask.hide, onConfirm: function () { ask.run(doSubmit); }
+    }) : null;
+
+    return h('section', { className: 'section' }, doneModal, askModal, h('div', { className: 'wrap stack', style: { maxWidth: 840, gap: 24 } },
       h('div', null, h(T.Button, { variant: 'textFilled', size: 'small', onClick: function () { props.go('home'); } }, '← 프로그램 소개로')),
       h('div', { className: 'stack-s' }, h('h1', { className: 'head-lg title', style: { margin: 0 } }, '파트너 신청서'), P('body-lg-regular muted', '회사와 담당자 정보를 알려 주세요. 모든 항목은 파트너팀만 볼 수 있어요.')),
       p.ready && !canSave ? h(Unavailable) : null,
@@ -610,6 +639,9 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
     }, [dealsQ.rows, reviews]);
     var m = metrics(deals);
     var nt = nextTier(partner.tier);
+    var ps = useState(null), pendingStage = ps[0], setPendingStage = ps[1];
+    var stageAsk = useAsk();
+    function saveStage(d, v) { return p.db.doc('deals/' + uid + '/items/' + d.id).update({ stage: v, updatedAt: new Date().toISOString() }); }
 
     function dealRows(list, editable) {
       return list.map(function (d) {
@@ -621,7 +653,11 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
           h(T.TD, null, d.mergeLabel),
           h(T.TD, null, editable
             ? h('select', { className: 'native', style: { width: 120, height: 32 }, value: d.stage, 'aria-label': d.customer + ' 진행 단계',
-                onChange: function (e) { p.db.doc('deals/' + uid + '/items/' + d.id).update({ stage: e.target.value, updatedAt: new Date().toISOString() }).catch(function () {}); } },
+                onChange: function (e) {
+                  var v = e.target.value;
+                  if (v === '계약 완료' || d.stage === '계약 완료') { setPendingStage({ deal: d, value: v }); stageAsk.show(); }
+                  else saveStage(d, v).catch(function () {});
+                } },
                 STAGES.map(function (x) { return h('option', { key: x }, x); }))
             : d.stage),
           h(T.TD, null, h(T.Badge, { theme: s.theme }, s.text)),
@@ -666,7 +702,15 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
           .map(function (kv) { return h(F, { key: kv[0] }, h('dt', null, kv[0]), h('dd', null, kv[1] || '-')); })));
     }
 
-    return h('div', { className: 'wrap section stack', style: { gap: 20 } },
+    var stageModal = stageAsk.open && pendingStage ? h(ConfirmModal, {
+      title: pendingStage.value === '계약 완료' ? '계약 완료로 바꿀까요?' : '계약 완료를 취소할까요?',
+      subTitle: pendingStage.deal.customer + ' · ' + pendingStage.deal.stage + ' → ' + pendingStage.value,
+      note: pendingStage.value === '계약 완료' ? '판매 실적과 등급 진행률에 바로 반영돼요.' : '판매 실적과 등급 진행률에서 빠져요.',
+      confirmLabel: '바꾸기', busy: stageAsk.busy, onCancel: function () { stageAsk.hide(); setPendingStage(null); },
+      onConfirm: function () { stageAsk.run(function () { return saveStage(pendingStage.deal, pendingStage.value).catch(function () {}); }).then(function () { setPendingStage(null); }); }
+    }) : null;
+
+    return h('div', { className: 'wrap section stack', style: { gap: 20 } }, stageModal,
       h('div', { className: 'portal-head' }, PageHead('파트너 포털', (partner.company || '파트너') + ' · ' + (partner.tier || 'Registered') + ' 등급')),
       h('div', { className: 'tabs-line' }, h(T.Tabs, { tabs: ['대시보드', '딜 등록·관리', '리베이트', '교육·자료', '파트너 정보'], value: tab, onChange: setTab })),
       body);
@@ -679,12 +723,17 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
     var b = useState(false), busy = b[0], setBusy = b[1];
     function set(k) { return function (v) { var n = Object.assign({}, f); n[k] = v; setF(n); }; }
     var ai = Number(String(f.ai).replace(/,/g, '')) || 0, router = Number(String(f.router).replace(/,/g, '')) || 0;
+    var ask = useAsk();
     var preview = ai ? (discountRate(ai) === null ? '10억 원 이상이라 별도 협의 대상이에요.' : '예상 Timely AI 할인율 ' + Math.round(discountRate(ai) * 100) + '% (같은 고객 합산 여부는 본사가 판단해요)') : null;
     async function submit(e) {
       e.preventDefault();
       if (!f.customer.trim()) { setMsg({ kind: 'danger', text: '고객사명을 입력해 주세요.' }); return; }
       if (!ai && !router) { setMsg({ kind: 'danger', text: 'Timely AI 또는 Timely Router 계약금액을 입력해 주세요.' }); return; }
       if (!f.close) { setMsg({ kind: 'danger', text: '예상 계약 시점을 입력해 주세요.' }); return; }
+      setMsg(null);
+      ask.show();
+    }
+    async function doSave() {
       setBusy(true);
       try {
         var id = newId('d');
@@ -694,6 +743,12 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
       setBusy(false);
     }
     return h('form', { className: 'box stack', onSubmit: submit, noValidate: true },
+      ask.open ? h(ConfirmModal, {
+        title: '딜을 등록할까요?', subTitle: '등록하면 본사가 검토한 뒤 보호 기간이 시작돼요.',
+        items: [['고객사', f.customer.trim() + ' · ' + f.segment], ['Timely AI', ai ? won(ai) + (discountRate(ai) === null ? ' · 별도 협의' : ' · 예상 할인율 ' + Math.round(discountRate(ai) * 100) + '%') : ''],
+          ['Timely Router', router ? won(router) + ' · 별도 기준' : ''], ['예상 계약 시점', f.close], ['진행 단계', f.stage]],
+        confirmLabel: '등록하기', busy: ask.busy, onCancel: ask.hide, onConfirm: function () { ask.run(doSave); }
+      }) : null,
       h('div', { className: 'stack-s' }, P('head-sm-bold', '새 딜 등록'),
         P('body-md-regular muted', '승인된 딜은 90일간 보호되고, 진행 증빙이 있으면 한 번 연장해 최대 180일까지 보호돼요. Timely Router는 별도 할인 기준을 적용해요.')),
       h('div', { className: 'form-grid' },
@@ -831,9 +886,13 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
     var n = useState((pr && pr.publicNote) || ''), note = n[0], setNote = n[1];
     var m = useState(null), msg = m[0], setMsg = m[1];
     var b = useState(false), busy = b[0], setBusy = b[1];
+    var ask = useAsk();
     if (!a) return null;
-    async function save() {
+    function save() {
       if (!reason.trim()) { setMsg('판단 근거를 적어 주세요. 결정 기록에 남아요.'); return; }
+      setMsg(null); ask.show();
+    }
+    async function doSave() {
       setBusy(true);
       try {
         var now = new Date().toISOString();
@@ -850,6 +909,12 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
       ['회사명', a.company + (a.hasLegalName && a.legalName ? ' (법인명 ' + a.legalName + ')' : '')], ['사업자등록번호', a.bizno], ['웹사이트', a.website], ['주소', a.address],
       ['회사 규모', a.size], ['파트너 유형', a.type], ['주요 영업 지역', (a.regions || []).join(', ')], ['주요 고객군', (a.segments || []).join(', ')],
       ['관심 제품', (a.products || []).join(', ')], ['연 매출 규모', a.revenue], ['공공 조달 경험', a.publicExp], ['영업 계획', a.plan], ['제출일', shortDate(a.submittedAt) + (a.updatedAt && a.updatedAt !== a.submittedAt ? ' (수정 ' + shortDate(a.updatedAt) + ')' : '')]];
+    if (ask.open) return h(ConfirmModal, {
+      title: a.company + ' 신청을 ' + APP_STATUS[decision][0] + '할까요?', subTitle: '신청자 화면에 결과가 바로 보여요.',
+      items: [['결정', APP_STATUS[decision][0]], ['시작 등급', decision === 'approved' ? tier : ''], ['신청자 안내', note.trim()], ['판단 근거', reason.trim()]],
+      note: '결정은 결정 기록에 남고, 기록은 고치거나 지울 수 없어요.', danger: decision === 'rejected', confirmLabel: APP_STATUS[decision][0] + '하기',
+      busy: ask.busy, onCancel: ask.hide, onConfirm: function () { ask.run(doSave); }
+    });
     return h(T.Modal, { open: true, title: a.company + ' 신청서', subTitle: pr ? '현재 상태: ' + APP_STATUS[pr.status][0] + ' · ' + shortDate(pr.decidedAt) + ' ' + props.nameOf(pr.decidedBy) : '검토 대기', size: 'lg', headerClose: true, onClose: props.onClose },
       h('div', { className: 'stack', style: { maxHeight: '60vh', overflowY: 'auto', paddingRight: 4 } },
         h('dl', { className: 'kv body-md-regular' }, rows.map(function (kv) { return h(F, { key: kv[0] }, h('dt', null, kv[0]), h('dd', { style: { whiteSpace: 'pre-line' } }, kv[1] || '-')); })),
@@ -889,9 +954,13 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
     var r = useState(''), reason = r[0], setReason = r[1];
     var e = useState(null), msg = e[0], setMsg = e[1];
     var b = useState(false), busy = b[0], setBusy = b[1];
-    async function save() {
+    var ask = useAsk();
+    function save() {
       if (tier === pr.tier) { setMsg('지금과 같은 등급이에요.'); return; }
       if (!reason.trim()) { setMsg('변경 근거를 적어 주세요.'); return; }
+      setMsg(null); ask.show();
+    }
+    async function doSave() {
       setBusy(true);
       try {
         await platform.db.doc('partners/' + pr.id).update({ tier: tier, tierChangedAt: new Date().toISOString() });
@@ -899,6 +968,11 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
         props.onClose();
       } catch (err) { setMsg(errText(err)); setBusy(false); }
     }
+    if (ask.open) return h(ConfirmModal, {
+      title: pr.company + ' 등급을 바꿀까요?', subTitle: pr.tier + ' → ' + tier,
+      items: [['변경 근거', reason.trim()]], note: '파트너 포털에 바로 반영되고, 결정 기록에 남아요.', confirmLabel: '바꾸기',
+      busy: ask.busy, onCancel: ask.hide, onConfirm: function () { ask.run(doSave); }
+    });
     return h(T.Modal, { open: true, title: pr.company + ' 등급 조정', subTitle: '판매 실적 ' + won(m.sales) + ' · 계약 딜 ' + m.closed + '건', size: 'md', headerClose: true, onClose: props.onClose },
       h('div', { className: 'stack' },
         h(Field, { label: '등급' }, h(T.Dropdown, { options: opts(TIERS.map(function (x) { return x.name; })), value: tier, onSelect: setTier })),
@@ -946,8 +1020,13 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
     var r = useState(''), reason = r[0], setReason = r[1];
     var e = useState(null), msg = e[0], setMsg = e[1];
     var b = useState(false), busy = b[0], setBusy = b[1];
-    async function save() {
+    var ask = useAsk();
+    function save() {
       if (!reason.trim()) { setMsg('판단 근거나 증빙을 적어 주세요.'); return; }
+      if (act === '동일 고객 합산 판단' && merge === '합산' && !mergeWith) { setMsg('합산할 같은 고객의 딜이 없어요.'); return; }
+      setMsg(null); ask.show();
+    }
+    async function doSave() {
       var path = 'partners/' + d.partnerId + '/dealReviews/' + d.id, base = Object.assign({}, rv), type, result;
       if (act === '등록 승인') { base.approvedAt = today(); base.status = '승인'; type = 'approve'; result = '보호 만료 ' + addDays(base.approvedAt, 90); }
       else if (act === '등록 반려') { base.status = '반려'; type = 'reject'; result = '반려'; }
@@ -967,6 +1046,12 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
     }
     var info = [['파트너', (props.partner || {}).company], ['고객사', d.customer + ' · ' + d.segment], ['제품', productLabel(d)], ['Timely AI', d.ai ? won(d.ai) + ' · 할인율 ' + rateLabel(d) : '-'],
       ['Timely Router', d.router ? won(d.router) + ' · 별도 기준' : '-'], ['예상 계약 시점', d.close], ['단계', d.stage], ['메모', d.memo], ['보호 만료', d.protectEnd || '-']];
+    if (ask.open) return h(ConfirmModal, {
+      title: d.customer + ' 딜을 처리할까요?', subTitle: act + (act === '동일 고객 합산 판단' ? ' · ' + merge : ''),
+      items: [['파트너', (props.partner || {}).company], ['판단 근거', reason.trim()]],
+      note: '파트너 포털에 바로 반영되고, 결정 기록에 남아요.', danger: act === '등록 반려', confirmLabel: act === '등록 반려' ? '반려하기' : '처리하기',
+      busy: ask.busy, onCancel: ask.hide, onConfirm: function () { ask.run(doSave); }
+    });
     return h(T.Modal, { open: true, title: d.customer + ' 딜', subTitle: dealStatus(d).text, size: 'lg', headerClose: true, onClose: props.onClose },
       h('div', { className: 'stack', style: { maxHeight: '60vh', overflowY: 'auto', paddingRight: 4 } },
         h('dl', { className: 'kv body-md-regular' }, info.map(function (kv) { return h(F, { key: kv[0] }, h('dt', null, kv[0]), h('dd', { style: { whiteSpace: 'pre-line' } }, kv[1] || '-')); })),
@@ -995,12 +1080,16 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
     var b = useState(false), busy = b[0], setBusy = b[1];
     function set(k) { return function (v) { var n = Object.assign({}, form); n[k] = v; setForm(n); }; }
     var ds = c.deals.filter(function (d) { return d.partnerId === pidEff; }), mt = metrics(ds);
-    async function save(e) {
+    var ask = useAsk();
+    var amount = form.decision === '지급' ? Number(String(form.amount).replace(/,/g, '')) || 0 : 0;
+    function save(e) {
       e.preventDefault();
       if (!pidEff) return;
       if (!form.period.trim() || !form.qualitative.trim()) { setMsg({ kind: 'danger', text: '대상 기간과 정성 평가 의견을 적어 주세요.' }); return; }
-      var amount = form.decision === '지급' ? Number(String(form.amount).replace(/,/g, '')) || 0 : 0;
       if (form.decision === '지급' && !amount) { setMsg({ kind: 'danger', text: '지급 금액을 입력해 주세요.' }); return; }
+      setMsg(null); ask.show();
+    }
+    async function doSave() {
       setBusy(true);
       try {
         var id = newId('r'), now = new Date().toISOString();
@@ -1015,6 +1104,12 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
     if (!approved.length) return h(F, null, PageHead('리베이트 결정'), h(Notice, null, '승인된 파트너가 없어요.'));
     return h(F, null,
       PageHead('리베이트 결정', '정량 실적은 결정 시점 값으로 함께 기록돼요. 파트너에게는 결과와 공개 안내만 보여요.'),
+      ask.open ? h(ConfirmModal, {
+        title: '리베이트 결정을 기록할까요?', subTitle: (c.partnerById[pidEff] || {}).company + ' · ' + form.period.trim(),
+        items: [['결정', form.decision + (amount ? ' ' + won(amount) : '')], ['파트너 안내', form.note.trim()], ['정량 (현재)', '실적 ' + won(mt.sales) + ' / 계약 ' + mt.closed + '건']],
+        note: '파트너 포털에 결과가 바로 보이고, 기록은 고치거나 지울 수 없어요.', confirmLabel: '기록하기',
+        busy: ask.busy, onCancel: ask.hide, onConfirm: function () { ask.run(doSave); }
+      }) : null,
       h('form', { className: 'box stack', style: { width: '100%' }, onSubmit: save, noValidate: true },
         h('div', { className: 'form-grid' },
           h(Field, { label: '파트너' }, h(T.Dropdown, { options: approved.map(function (x) { return { label: x.company, value: x.id }; }), value: pidEff, onSelect: setPid })),
