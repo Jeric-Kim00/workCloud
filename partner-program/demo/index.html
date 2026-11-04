@@ -95,6 +95,21 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
 .admin-tabs { display: none; }
 .tabs-line { display: flex; gap: 8px; align-items: flex-start; border-bottom: 1px solid var(--color-borders-default); width: 100%; overflow-x: auto; }
 .portal-head { display: flex; flex-direction: column; gap: 4px; }
+/* 고객사 진행 단계 */
+.csteps-scroll { overflow-x: auto; }
+.csteps { display: grid; grid-template-columns: 3fr 4fr; gap: 16px; min-width: 640px; }
+.ctrack { display: flex; flex-direction: column; gap: 8px; border: 1px solid var(--color-borders-default); border-radius: 12px; padding: 12px; background: var(--color-bg-light); }
+.ctrack-name { color: var(--color-text-light); }
+.clist { list-style: none; margin: 0; padding: 0; display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 8px; }
+.cstep { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; position: relative; min-width: 0; }
+.cstep + .cstep::before { content: ""; position: absolute; top: 13px; left: -8px; width: 8px; height: 2px; background: var(--color-borders-default); }
+.cdot { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; font-size: 13px; font-weight: 700; background: var(--color-bg-default); color: var(--color-text-neutral); border: 1px solid var(--color-borders-default); }
+.cstep.done .cdot { background: var(--color-primary-default); border-color: var(--color-primary-default); color: var(--color-text-button-fill-text); }
+.cstep.current .cdot { border: 2px solid var(--color-borders-primary); color: var(--color-text-primary); }
+.cstep.current .clabel { color: var(--color-text-primary); }
+.clabel { color: var(--color-text-default); }
+.cowner { color: var(--color-text-neutral); }
+.cinfo { color: var(--color-text-light); overflow-wrap: anywhere; }
 
 @media (max-width: 1023px) {
   .admin-side { display: none; }
@@ -1043,6 +1058,8 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
     } else if (tab === '딜 등록·관리') {
       body = h(F, null, h(DealForm, { uid: uid, pricing: pricingOf(partner) }), P('head-sm-bold', '전체 딜'),
         h(DataTable, { cols: dealCols, rows: dealRows(deals, true), empty: '등록한 딜이 없어요.' }));
+    } else if (tab === '고객사 진행') {
+      body = h(PortalCustomers, { uid: uid });
     } else if (tab === '리베이트') {
       body = h(F, null,
         P('body-md-regular muted', '리베이트는 본사가 정량 실적과 정성 평가를 함께 보고 결정해요. 이 화면에는 결정 결과만 보여요.'),
@@ -1074,7 +1091,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
 
     return h('div', { className: 'wrap section stack', style: { gap: 20 } }, stageModal,
       h('div', { className: 'portal-head' }, PageHead('파트너 포털', (partner.company || '파트너') + ' · ' + (partner.tier || 'Registered') + ' 등급')),
-      h('div', { className: 'tabs-line' }, h(T.Tabs, { tabs: ['대시보드', '딜 등록·관리', '리베이트', '교육·자료', '파트너 정보'], value: tab, onChange: setTab })),
+      h('div', { className: 'tabs-line' }, h(T.Tabs, { tabs: ['대시보드', '고객사 진행', '딜 등록·관리', '리베이트', '교육·자료', '파트너 정보'], value: tab, onChange: setTab })),
       body);
   }
 
@@ -1127,17 +1144,221 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
       h('div', null, h(T.Button, { variant: 'primaryFilled', type: 'submit', pending: busy, disabled: busy, prefixIcon: 'Icon16pxIcPlusWhite' }, '딜 등록하기')));
   }
 
+  /* ───────── 고객사 진행 (PoC 스페이스 · 크레딧 지급) ─────────
+     파트너가 쓰는 단계는 deals/<파트너>/customers/<고객사>, 본사가 쓰는 단계는 partners/<파트너>/customerReviews/<고객사>에 저장한다. */
+  var CSTEPS = [
+    { key: 'consulted', track: 'PoC', label: '고객사 협의', owner: 'partner', needs: [] },
+    { key: 'pocRequested', track: 'PoC', label: 'PoC 스페이스 요청', owner: 'partner', needs: ['consulted'] },
+    { key: 'pocDelivered', track: 'PoC', label: 'PoC 스페이스 전달', owner: 'hq', needs: ['pocRequested'] },
+    { key: 'contracted', track: '크레딧', label: '고객사 계약', owner: 'partner', needs: [] },
+    { key: 'partnerContract', track: '크레딧', label: '파트너–Timely 계약', owner: 'hq', needs: ['contracted'] },
+    { key: 'spaceRequested', track: '크레딧', label: '스페이스 지원 요청', owner: 'partner', needs: ['contracted', 'partnerContract'] },
+    { key: 'spaceDelivered', track: '크레딧', label: '스페이스·크레딧 지급', owner: 'hq', needs: ['spaceRequested'] }
+  ];
+  // 받침에 맞는 조사: josa('계약', '을', '를') → '계약을'
+  function josa(word, withFinal, without) {
+    var code = String(word).charCodeAt(String(word).length - 1) - 0xAC00;
+    if (code < 0 || code > 11171) return word + withFinal + '(' + without + ')';
+    return word + (code % 28 ? withFinal : without);
+  }
+  var CSTEP = {}; CSTEPS.forEach(function (s, i) { s.no = i + 1; CSTEP[s.key] = s; });
+  var STEP_FIELDS = {
+    consulted: [{ key: 'date', label: '협의일', type: 'date', required: true }, { key: 'memo', label: '메모', type: 'textarea' }],
+    pocRequested: [{ key: 'domain', label: '고객사 요청 도메인', type: 'domain', required: true, help: '예: ai.customer.co.kr' }, { key: 'date', label: 'PoC 스페이스 지급 희망일', type: 'date', required: true }, { key: 'memo', label: '요청 메모', type: 'textarea' }],
+    pocDelivered: [{ key: 'date', label: '전달일', type: 'date', required: true }, { key: 'email', label: '전달받는 파트너 이메일', type: 'email', required: true, help: '데모에서는 메일을 실제로 보내지 않고 전달 기록만 남겨요.' }, { key: 'memo', label: '스페이스 주소·안내 메모', type: 'textarea' }],
+    contracted: [{ key: 'date', label: '고객사 계약일', type: 'date', required: true }, { key: 'memo', label: '메모', type: 'textarea' }],
+    partnerContract: [{ key: 'date', label: '파트너–Timely 계약일', type: 'date', required: true }, { key: 'memo', label: '계약번호·메모', type: 'textarea' }],
+    spaceRequested: [{ key: 'domain', label: '고객사 요청 도메인', type: 'domain', required: true }, { key: 'date', label: '스페이스 지급 희망일', type: 'date', required: true }, { key: 'credits', label: '지급 크레딧', type: 'number', required: true }, { key: 'memo', label: '요청 메모', type: 'textarea' }],
+    spaceDelivered: [{ key: 'date', label: '지급일', type: 'date', required: true }, { key: 'credits', label: '지급 크레딧', type: 'number', required: true }, { key: 'memo', label: '메모', type: 'textarea' }]
+  };
+  function custDone(c, key) { var src = CSTEP[key].owner === 'hq' ? (c.hq || {}) : c; return !!src[key]; }
+  function custCan(c, key) { return !custDone(c, key) && CSTEP[key].needs.every(function (k) { return custDone(c, k); }); }
+  // 지금 누가 무엇을 해야 하는지. 크레딧 절차가 시작되면 크레딧 단계를, 아니면 PoC 단계를 따른다.
+  function custNext(c) {
+    if (custDone(c, 'spaceDelivered')) return null;
+    var track = custDone(c, 'contracted') ? ['contracted', 'partnerContract', 'spaceRequested', 'spaceDelivered'] : ['consulted', 'pocRequested', 'pocDelivered', 'contracted'];
+    for (var i = 0; i < track.length; i++) if (!custDone(c, track[i])) return CSTEP[track[i]];
+    return null;
+  }
+  function custStatus(c) {
+    var n = custNext(c);
+    if (!n) return { text: '지급 완료', theme: 'green', owner: null };
+    if (n.key === 'contracted' && custDone(c, 'pocDelivered')) return { text: 'PoC 진행 중 · 계약 대기', theme: 'blue', owner: 'partner', step: n };
+    return n.owner === 'hq' ? { text: '본사 처리 대기 · ' + n.label, theme: 'yellow', owner: 'hq', step: n } : { text: '파트너 진행 · ' + n.label, theme: 'blue', owner: 'partner', step: n };
+  }
+  function stepInfo(c, key) {
+    var v = CSTEP[key].owner === 'hq' ? (c.hq || {})[key] : c[key];
+    if (!v) return null;
+    var bits = [v.date];
+    if (v.domain) bits.push(v.domain);
+    if (v.credits) bits.push(Number(v.credits).toLocaleString('ko-KR') + ' 크레딧');
+    if (v.email) bits.push(v.email);
+    return bits.filter(Boolean).join(' · ');
+  }
+
+  function Stepper(props) {
+    var c = props.c, next = custNext(c);
+    function dot(s) {
+      var done = custDone(c, s.key), cur = next && next.key === s.key;
+      return h('li', { key: s.key, className: 'cstep' + (done ? ' done' : cur ? ' current' : '') },
+        h('span', { className: 'cdot', 'aria-hidden': 'true' }, done ? '✓' : s.no),
+        h('span', { className: 'clabel body-sm-medium' }, s.label),
+        h('span', { className: 'cowner body-sm-regular' }, s.owner === 'hq' ? '본사' : '파트너'),
+        props.detail && stepInfo(c, s.key) ? h('span', { className: 'cinfo body-sm-regular num' }, stepInfo(c, s.key)) : null);
+    }
+    return h('div', { className: 'csteps-scroll' }, h('div', { className: 'csteps' },
+      ['PoC', '크레딧'].map(function (track) {
+        return h('div', { key: track, className: 'ctrack' },
+          h('span', { className: 'ctrack-name body-sm-bold' }, track === 'PoC' ? 'PoC 스페이스' : '크레딧 지급'),
+          h('ol', { className: 'clist', 'aria-label': track + ' 단계' }, CSTEPS.filter(function (s) { return s.track === track; }).map(dot)));
+      })));
+  }
+
+  // 단계 하나를 기록하는 입력 팝업 → 확인 팝업
+  function StepModal(props) {
+    var step = CSTEP[props.stepKey], fields = STEP_FIELDS[props.stepKey];
+    var init = {}; fields.forEach(function (f) { init[f.key] = (props.defaults && props.defaults[f.key] != null) ? String(props.defaults[f.key]) : f.type === 'date' ? today() : ''; });
+    var s = useState(init), v = s[0], setV = s[1];
+    var e = useState(null), msg = e[0], setMsg = e[1];
+    var ask = useAsk();
+    function set(k) { return function (x) { var n = Object.assign({}, v); n[k] = x; setV(n); }; }
+    function check() {
+      for (var i = 0; i < fields.length; i++) {
+        var f = fields[i], x = String(v[f.key] || '').trim();
+        if (f.required && !x) return josa(f.label, '을', '를') + ' 입력해 주세요.';
+        if (x && f.type === 'domain' && !/^(?=.{3,253}$)([a-z0-9-]+\.)+[a-z]{2,}$/i.test(x)) return '도메인 형식을 확인해 주세요. (예: ai.customer.co.kr)';
+        if (x && f.type === 'email' && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(x)) return '이메일 형식을 확인해 주세요.';
+        if (x && f.type === 'number' && !(Number(x.replace(/,/g, '')) > 0)) return josa(f.label, '은', '는') + ' 0보다 큰 숫자로 입력해 주세요.';
+      }
+      return null;
+    }
+    function submit() { var err = check(); if (err) { setMsg(err); return; } setMsg(null); ask.show(); }
+    function clean() { var o = {}; fields.forEach(function (f) { var x = String(v[f.key] || '').trim(); if (x) o[f.key] = f.type === 'number' ? Number(x.replace(/,/g, '')) : f.type === 'domain' ? x.toLowerCase() : x; }); return o; }
+    if (ask.open) return h(ConfirmModal, {
+      title: josa(step.label, '을', '를') + ' 기록할까요?', subTitle: props.customer,
+      items: fields.map(function (f) { var x = clean()[f.key]; return [f.label, x == null ? '' : f.type === 'number' ? Number(x).toLocaleString('ko-KR') : String(x)]; }),
+      note: step.owner === 'hq' ? '파트너 포털에 바로 보이고 결정 기록에 남아요.' : '본사 화면에 바로 보여요.', confirmLabel: '기록하기',
+      busy: ask.busy, onCancel: ask.hide, onConfirm: function () { ask.run(async function () { try { await props.onSave(clean()); props.onClose(); } catch (err) { setMsg(errText(err)); } }); }
+    });
+    return h(T.Modal, { open: true, title: step.no + '. ' + step.label, subTitle: props.customer, size: 'md', headerClose: true, onClose: props.onClose },
+      h('div', { className: 'stack' },
+        fields.map(function (f) {
+          var input = f.type === 'date' ? h('input', { id: 'st-' + f.key, className: 'native', type: 'date', value: v[f.key], onChange: function (ev) { set(f.key)(ev.target.value); } })
+            : f.type === 'textarea' ? h('textarea', { id: 'st-' + f.key, className: 'textarea', value: v[f.key], onChange: function (ev) { set(f.key)(ev.target.value); } })
+            : f.type === 'number' ? h(T.TextInput, { id: 'st-' + f.key, inputType: 'number', thousandSeparator: ',', wrapperClassName: 'w-full', value: v[f.key], onChange: function (ev) { set(f.key)(ev.target.value); } })
+            : h(Input, { id: 'st-' + f.key, type: f.type === 'email' ? 'email' : 'text', value: v[f.key], onValue: set(f.key) });
+          return h(Field, { key: f.key, label: f.label, required: f.required, help: f.help }, input);
+        }),
+        msg ? h(Notice, { kind: 'danger' }, msg) : null),
+      h('div', { slot: 'buttons' }, h(T.Button, { variant: 'grayScaleFilled', onClick: props.onClose }, '취소'), h(T.Button, { variant: 'primaryFilled', onClick: submit }, '기록하기')));
+  }
+
+  function lastDomain(c) { return (c.spaceRequested && c.spaceRequested.domain) || (c.pocRequested && c.pocRequested.domain) || c.domain || ''; }
+
+  function CustomerCard(props) {
+    var c = props.c, st = custStatus(c);
+    var actions = CSTEPS.filter(function (s) { return s.owner === props.role && custCan(c, s.key); });
+    return h('div', { className: 'box stack', style: { gap: 16 } },
+      h('div', { className: 'between' },
+        h('div', { className: 'stack-s', style: { gap: 2 } },
+          h('div', { className: 'row' }, P('head-sm-bold', c.name), props.partnerName ? h(T.Badge, { theme: 'gray' }, props.partnerName) : null),
+          P('body-sm-regular muted', [segLabel(c.segment), lastDomain(c)].filter(function (x) { return x && x !== '-'; }).join(' · ') || '도메인 미정')),
+        h(T.Badge, { theme: st.theme, height: '24' }, st.text)),
+      h(Stepper, { c: c, detail: true }),
+      actions.length ? h('div', { className: 'row' }, actions.map(function (s) {
+        return h(T.Button, { key: s.key, size: 'small', variant: st.step && st.step.key === s.key ? 'primaryFilled' : 'grayScaleOutline', onClick: function () { props.onAct(c, s.key); } }, s.no + '. ' + s.label + ' 기록');
+      })) : (props.role === 'partner' && st.owner === 'hq' ? P('body-sm-regular muted', '본사가 처리하면 여기에 바로 반영돼요.') : null));
+  }
+
+  function PortalCustomers(props) {
+    var uid = props.uid;
+    var custQ = useCol('deals/' + uid + '/customers');
+    var revQ = useCol('partners/' + uid + '/customerReviews');
+    var a = useState(null), act = a[0], setAct = a[1];
+    var ad = useState(false), adding = ad[0], setAdding = ad[1];
+    var f = useState('전체'), filter = f[0], setFilter = f[1];
+    var rev = {}; revQ.rows.forEach(function (r) { rev[r.id] = r; });
+    var list = custQ.rows.map(function (c) { return Object.assign({}, c, { hq: rev[c.id] || {} }); })
+      .sort(function (x, y) { return String(y.createdAt).localeCompare(String(x.createdAt)); });
+    var shown = list.filter(function (c) { var s = custStatus(c); return filter === '전체' || (filter === '내가 할 일' ? s.owner === 'partner' : filter === '본사 처리 대기' ? s.owner === 'hq' : !s.owner); });
+    var counts = { '내가 할 일': 0, '본사 처리 대기': 0, '완료': 0 };
+    list.forEach(function (c) { var s = custStatus(c); counts[s.owner === 'partner' ? '내가 할 일' : s.owner === 'hq' ? '본사 처리 대기' : '완료']++; });
+    return h(F, null,
+      h('div', { className: 'between' },
+        P('body-md-regular muted', 'PoC 스페이스와 크레딧 지급 진행 상황을 고객사별로 봐요. 파트너 단계는 여기서 기록하고, 본사 단계는 본사가 처리하면 바로 반영돼요.'),
+        h(T.Button, { variant: 'primaryFilled', size: 'small', prefixIcon: 'Icon16pxIcPlusWhite', onClick: function () { setAdding(true); } }, '고객사 추가')),
+      h('div', { className: 'kpis' }, Kpi('전체 고객사', list.length + '곳'), Kpi('내가 할 일', counts['내가 할 일'] + '곳'), Kpi('본사 처리 대기', counts['본사 처리 대기'] + '곳'), Kpi('지급 완료', counts['완료'] + '곳')),
+      h('div', { className: 'tabs-line' }, h(T.Tabs, { tabs: ['전체', '내가 할 일', '본사 처리 대기', '완료'], value: filter, onChange: setFilter })),
+      shown.length ? h('div', { className: 'stack' }, shown.map(function (c) { return h(CustomerCard, { key: c.id, c: c, role: 'partner', onAct: function (cc, k) { setAct({ c: cc, key: k }); } }); }))
+        : h('div', { className: 'box empty body-md-regular' }, list.length ? '해당하는 고객사가 없어요.' : '아직 고객사가 없어요. 고객사 추가로 첫 고객사를 등록해 보세요.'),
+      adding ? h(AddCustomerModal, { uid: uid, onClose: function () { setAdding(false); } }) : null,
+      act ? h(StepModal, { stepKey: act.key, customer: act.c.name, defaults: act.key === 'pocRequested' || act.key === 'spaceRequested' ? { domain: lastDomain(act.c) } : null, onClose: function () { setAct(null); },
+        onSave: function (val) { var o = {}; o[act.key] = Object.assign(val, { at: new Date().toISOString() }); o.updatedAt = new Date().toISOString(); return platform.db.doc('deals/' + uid + '/customers/' + act.c.id).update(o); } }) : null);
+  }
+
+  function AddCustomerModal(props) {
+    var s = useState({ name: '', segment: '', domain: '' }), v = s[0], setV = s[1];
+    var e = useState(null), msg = e[0], setMsg = e[1];
+    var ask = useAsk();
+    function set(k) { return function (x) { var n = Object.assign({}, v); n[k] = x; setV(n); }; }
+    function submit() {
+      if (!v.name.trim()) { setMsg('고객사명을 입력해 주세요.'); return; }
+      if (!v.segment) { setMsg('고객 유형을 골라 주세요.'); return; }
+      if (v.domain.trim() && !/^(?=.{3,253}$)([a-z0-9-]+\.)+[a-z]{2,}$/i.test(v.domain.trim())) { setMsg('도메인 형식을 확인해 주세요. (예: ai.customer.co.kr)'); return; }
+      setMsg(null); ask.show();
+    }
+    if (ask.open) return h(ConfirmModal, { title: '고객사를 추가할까요?', items: [['고객사명', v.name.trim()], ['고객 유형', v.segment], ['요청 도메인', v.domain.trim().toLowerCase()]], confirmLabel: '추가하기',
+      busy: ask.busy, onCancel: ask.hide, onConfirm: function () { ask.run(async function () {
+        try { await platform.db.doc('deals/' + props.uid + '/customers/' + newId('c')).set({ name: v.name.trim(), segment: v.segment, domain: v.domain.trim().toLowerCase(), createdAt: new Date().toISOString() }); props.onClose(); }
+        catch (err) { setMsg(errText(err)); } }); } });
+    return h(T.Modal, { open: true, title: '고객사 추가', subTitle: 'PoC부터 시작하거나, 바로 계약 단계부터 기록할 수 있어요.', size: 'md', headerClose: true, onClose: props.onClose },
+      h('div', { className: 'stack' },
+        h(Field, { label: '고객사명', required: true }, h(Input, { id: 'cu-name', value: v.name, onValue: set('name') })),
+        h(Field, { label: '고객 유형', required: true }, h(T.Dropdown, { options: SEGMENT_OPTIONS, value: v.segment, placeholder: '고객 유형 고르기', onSelect: set('segment') })),
+        h(Field, { label: '고객사 요청 도메인', help: '정해지지 않았으면 비워 두고, 스페이스를 요청할 때 입력해도 돼요.' }, h(Input, { id: 'cu-domain', value: v.domain, onValue: set('domain'), placeholder: 'ai.customer.co.kr' })),
+        msg ? h(Notice, { kind: 'danger' }, msg) : null),
+      h('div', { slot: 'buttons' }, h(T.Button, { variant: 'grayScaleFilled', onClick: props.onClose }, '취소'), h(T.Button, { variant: 'primaryFilled', onClick: submit }, '추가하기')));
+  }
+
+  function AdminCustomers(props) {
+    var c = props.ctx;
+    var f = useState('본사 처리 대기'), filter = f[0], setFilter = f[1];
+    var a = useState(null), act = a[0], setAct = a[1];
+    var counts = { '본사 처리 대기': 0, '파트너 진행': 0, '완료': 0 };
+    c.customers.forEach(function (x) { var s = custStatus(x); counts[s.owner === 'hq' ? '본사 처리 대기' : s.owner === 'partner' ? '파트너 진행' : '완료']++; });
+    var shown = c.customers.filter(function (x) { var s = custStatus(x); return filter === '전체' || (filter === '본사 처리 대기' ? s.owner === 'hq' : filter === '파트너 진행' ? s.owner === 'partner' : !s.owner); });
+    var tabs = ['본사 처리 대기', '파트너 진행', '완료', '전체'];
+    return h(F, null,
+      PageHead('고객사 진행', '파트너별 고객사의 PoC 스페이스와 크레딧 지급 단계를 확인하고 본사 단계를 처리해요.'),
+      h('div', { className: 'kpis', style: { width: '100%' } }, Kpi('전체 고객사', c.customers.length + '곳'), Kpi('본사 처리 대기', counts['본사 처리 대기'] + '곳'), Kpi('파트너 진행', counts['파트너 진행'] + '곳'), Kpi('지급 완료', counts['완료'] + '곳')),
+      h('div', { className: 'tabs-line' }, h(T.Tabs, { tabs: tabs.map(function (t) { return t + ' ' + (t === '전체' ? c.customers.length : counts[t]); }), value: filter + ' ' + (filter === '전체' ? c.customers.length : counts[filter]), onChange: function (t) { setFilter(t.replace(/ \d+$/, '')); } })),
+      shown.length ? h('div', { className: 'stack', style: { width: '100%' } }, shown.map(function (x) {
+        return h(CustomerCard, { key: x.partnerId + x.id, c: x, role: 'hq', partnerName: (c.partnerById[x.partnerId] || {}).company, onAct: function (cc, k) { setAct({ c: cc, key: k }); } });
+      })) : h('div', { className: 'box empty body-md-regular', style: { width: '100%' } }, c.customers.length ? (filter === '본사 처리 대기' ? '본사가 처리할 고객사가 없어요. 전체 탭에서 진행 상황을 볼 수 있어요.' : '해당하는 고객사가 없어요.') : '아직 파트너가 등록한 고객사가 없어요.'),
+      act ? h(StepModal, { stepKey: act.key, customer: act.c.name + ' · ' + ((c.partnerById[act.c.partnerId] || {}).company || ''),
+        defaults: act.key === 'pocDelivered' ? { email: (c.appById[act.c.partnerId] || {}).email || '' } : act.key === 'spaceDelivered' ? { credits: act.c.spaceRequested && act.c.spaceRequested.credits } : null,
+        onClose: function () { setAct(null); },
+        onSave: async function (val) {
+          var x = act.c, o = {}; o[act.key] = Object.assign(val, { at: new Date().toISOString(), by: platform.uid });
+          var path = 'partners/' + x.partnerId + '/customerReviews/' + x.id;
+          if (x.hq && Object.keys(x.hq).length) await platform.db.doc(path).update(o); else await platform.db.doc(path).set(o);
+          await writeLog({ type: act.key, partnerId: x.partnerId, target: ((c.partnerById[x.partnerId] || {}).company || '') + ' · ' + x.name, reason: val.memo || '',
+            result: CSTEP[act.key].label + ' · ' + [val.date, val.email, val.credits ? Number(val.credits).toLocaleString('ko-KR') + ' 크레딧' : ''].filter(Boolean).join(' · ') });
+        } }) : null);
+  }
+
   /* ───────── 관리자 ───────── */
   var ADMIN_MENU = [
     { key: 'overview', label: '개요', icon: 'Icon16pxIcSidebarBar', activeIcon: 'Icon16pxIcSidebarBarColor' },
     { key: 'applications', label: '파트너 신청', icon: 'Icon16pxIcEmail' },
     { key: 'partners', label: '파트너 관리', icon: 'Icon16pxIcGroup' },
+    { key: 'customers', label: '고객사 진행', icon: 'Icon16pxIcSidebarSpace' },
     { key: 'deals', label: '딜 검토', icon: 'Icon16pxIcSidebarFolder', activeIcon: 'Icon16pxIcSidebarFolderColor' },
     { key: 'rebates', label: '리베이트 결정', icon: 'Icon16pxIcPayments', activeIcon: 'Icon16pxIcPaymentsColor' },
     { key: 'log', label: '결정 기록', icon: 'Icon16pxIcList' }
   ];
   var APP_STATUS = { approved: ['승인', 'green'], hold: ['보류', 'yellow'], rejected: ['반려', 'red'] };
-  var LOG_TYPE = { application: '신청 심사', tier: '등급 변경', pricing: '할인율 변경', terms: '등급·할인율 변경', approve: '딜 승인', reject: '딜 반려', extend: '보호 연장', merge: '동일 고객 합산', rebate: '리베이트' };
+  var LOG_TYPE = { application: '신청 심사', tier: '등급 변경', pricing: '할인율 변경', terms: '등급·할인율 변경', approve: '딜 승인', reject: '딜 반려', extend: '보호 연장', merge: '동일 고객 합산', rebate: '리베이트', pocDelivered: 'PoC 스페이스 전달', partnerContract: '파트너 계약 확인', spaceDelivered: '스페이스·크레딧 지급' };
 
   function Admin() {
     var p = usePlatform();
@@ -1148,6 +1369,8 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
     var approvedIds = partners.rows.filter(function (x) { return x.status === 'approved'; }).map(function (x) { return x.id; });
     var dealsMap = useMany(approvedIds.map(function (id) { return 'deals/' + id + '/items'; }));
     var reviewMap = useMany(approvedIds.map(function (id) { return 'partners/' + id + '/dealReviews'; }));
+    var custMap = useMany(approvedIds.map(function (id) { return 'deals/' + id + '/customers'; }));
+    var custRevMap = useMany(approvedIds.map(function (id) { return 'partners/' + id + '/customerReviews'; }));
     var nameOf = useNames(log.rows.map(function (r) { return r.by; }).concat(partners.rows.map(function (r) { return r.decidedBy; })));
 
     if (!p.ready) return h('div', { className: 'wrap section' }, P('body-md-regular muted', '불러오는 중이에요.'));
@@ -1164,10 +1387,17 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
     allDeals.sort(function (a, b) { return String(b.createdAt).localeCompare(String(a.createdAt)); });
     var pendingApps = apps.rows.filter(function (a) { return !partnerById[a.id]; });
     var pendingDeals = allDeals.filter(function (d) { return !d.review.approvedAt && d.review.status !== '반려'; });
+    var customers = [];
+    approvedIds.forEach(function (pid) {
+      var rv = {}; (custRevMap['partners/' + pid + '/customerReviews'] || []).forEach(function (r) { rv[r.id] = r; });
+      (custMap['deals/' + pid + '/customers'] || []).forEach(function (x) { customers.push(Object.assign({}, x, { partnerId: pid, hq: rv[x.id] || {} })); });
+    });
+    customers.sort(function (a, b) { return String(b.updatedAt || b.createdAt).localeCompare(String(a.updatedAt || a.createdAt)); });
+    var hqWaiting = customers.filter(function (x) { return custStatus(x).owner === 'hq'; });
 
-    var ctx = { apps: apps.rows, partners: partners.rows, partnerById: partnerById, appById: appById, deals: allDeals, log: log.rows, nameOf: nameOf, go: setSec };
+    var ctx = { apps: apps.rows, partners: partners.rows, partnerById: partnerById, appById: appById, deals: allDeals, customers: customers, log: log.rows, nameOf: nameOf, go: setSec };
     var items = ADMIN_MENU.map(function (m) {
-      return { label: m.label, to: '/admin/' + m.key, icon: m.icon, activeIcon: m.activeIcon || m.icon, isNew: (m.key === 'applications' && pendingApps.length > 0) || (m.key === 'deals' && pendingDeals.length > 0) };
+      return { label: m.label, to: '/admin/' + m.key, icon: m.icon, activeIcon: m.activeIcon || m.icon, isNew: (m.key === 'applications' && pendingApps.length > 0) || (m.key === 'deals' && pendingDeals.length > 0) || (m.key === 'customers' && hqWaiting.length > 0) };
     });
     function onSideClick(e) {
       var txt = (e.target.textContent || '').trim();
@@ -1175,7 +1405,8 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
       if (hit) setSec(hit.key);
     }
     var view = {
-      overview: h(AdminOverview, { ctx: ctx, pendingApps: pendingApps, pendingDeals: pendingDeals }),
+      overview: h(AdminOverview, { ctx: ctx, pendingApps: pendingApps, pendingDeals: pendingDeals, hqWaiting: hqWaiting }),
+      customers: h(AdminCustomers, { ctx: ctx }),
       applications: h(AdminApplications, { ctx: ctx }),
       partners: h(AdminPartners, { ctx: ctx }),
       deals: h(AdminDeals, { ctx: ctx }),
@@ -1201,7 +1432,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
       PageHead('개요', '파트너 신청과 딜, 실적을 한눈에 볼 수 있어요.'),
       h('div', { className: 'kpis', style: { width: '100%' } },
         Kpi('검토 대기 신청', props.pendingApps.length + '건'), Kpi('승인 파트너', approved.length + '곳'),
-        Kpi('승인 대기 딜', props.pendingDeals.length + '건'), Kpi('계약 완료 실적', won(m.sales), '전체 파트너 합계')),
+        Kpi('승인 대기 딜', props.pendingDeals.length + '건'), Kpi('고객사 본사 처리 대기', props.hqWaiting.length + '곳'), Kpi('계약 완료 실적', won(m.sales), '전체 파트너 합계')),
       h('div', { className: 'grid-2', style: { width: '100%' } },
         h('div', { className: 'box stack' }, h('div', { className: 'between' }, P('head-sm-bold', '검토 대기 신청'), h(T.Button, { size: 'small', variant: 'grayScaleOutline', onClick: function () { c.go('applications'); } }, '전체 보기')),
           props.pendingApps.length ? h('div', { className: 'stack-s' }, props.pendingApps.slice(0, 5).map(function (a) {
