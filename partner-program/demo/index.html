@@ -110,6 +110,12 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
 .clabel { color: var(--color-text-default); }
 .cowner { color: var(--color-text-neutral); }
 .cinfo { color: var(--color-text-light); overflow-wrap: anywhere; }
+.slug-input { display: flex; align-items: stretch; height: 40px; border: 1px solid var(--color-borders-default); border-radius: 8px; background: var(--color-bg-default); overflow: hidden; }
+.slug-input:focus-within { border-color: var(--color-borders-primary); }
+.slug-input.error { border-color: var(--color-borders-danger); }
+.slug-prefix { display: flex; align-items: center; padding: 0 10px 0 12px; background: var(--color-bg-light); color: var(--color-text-light); border-right: 1px solid var(--color-borders-default); font-size: 14px; white-space: nowrap; }
+.slug-input input { flex: 1; min-width: 0; border: 0; outline: none; background: transparent; color: var(--color-text-default); padding: 0 12px; font: inherit; font-size: 14px; letter-spacing: -0.4px; }
+.slug-input input::placeholder { color: var(--color-text-neutral); }
 
 @media (max-width: 1023px) {
   .admin-side { display: none; }
@@ -1164,11 +1170,11 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
   var CSTEP = {}; CSTEPS.forEach(function (s, i) { s.no = i + 1; CSTEP[s.key] = s; });
   var STEP_FIELDS = {
     consulted: [{ key: 'date', label: '협의일', type: 'date', required: true }, { key: 'memo', label: '메모', type: 'textarea' }],
-    pocRequested: [{ key: 'domain', label: '고객사 요청 도메인', type: 'domain', required: true, help: '예: ai.customer.co.kr' }, { key: 'date', label: 'PoC 스페이스 지급 희망일', type: 'date', required: true }, { key: 'memo', label: '요청 메모', type: 'textarea' }],
+    pocRequested: [{ key: 'domain', label: '고객사 스페이스 주소', type: 'slug', required: true, help: '영문자만 ' + 2 + '~' + 30 + '자 · 예: timelyai.io/seoul' }, { key: 'date', label: 'PoC 스페이스 지급 희망일', type: 'date', required: true }, { key: 'memo', label: '요청 메모', type: 'textarea' }],
     pocDelivered: [{ key: 'date', label: '전달일', type: 'date', required: true }, { key: 'email', label: '전달받는 파트너 이메일', type: 'email', required: true, help: '데모에서는 메일을 실제로 보내지 않고 전달 기록만 남겨요.' }, { key: 'memo', label: '스페이스 주소·안내 메모', type: 'textarea' }],
     contracted: [{ key: 'date', label: '고객사 계약일', type: 'date', required: true }, { key: 'memo', label: '메모', type: 'textarea' }],
     partnerContract: [{ key: 'date', label: '파트너–Timely 계약일', type: 'date', required: true }, { key: 'memo', label: '계약번호·메모', type: 'textarea' }],
-    spaceRequested: [{ key: 'domain', label: '고객사 요청 도메인', type: 'domain', required: true }, { key: 'date', label: '스페이스 지급 희망일', type: 'date', required: true }, { key: 'credits', label: '지급 크레딧', type: 'number', required: true }, { key: 'memo', label: '요청 메모', type: 'textarea' }],
+    spaceRequested: [{ key: 'domain', label: '고객사 스페이스 주소', type: 'slug', required: true, help: '영문자만 ' + 2 + '~' + 30 + '자 · 예: timelyai.io/seoul' }, { key: 'date', label: '스페이스 지급 희망일', type: 'date', required: true }, { key: 'credits', label: '지급 크레딧', type: 'number', required: true }, { key: 'memo', label: '요청 메모', type: 'textarea' }],
     spaceDelivered: [{ key: 'date', label: '지급일', type: 'date', required: true }, { key: 'credits', label: '지급 크레딧', type: 'number', required: true }, { key: 'memo', label: '메모', type: 'textarea' }]
   };
   function custDone(c, key) { var src = CSTEP[key].owner === 'hq' ? (c.hq || {}) : c; return !!src[key]; }
@@ -1190,7 +1196,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
     var v = CSTEP[key].owner === 'hq' ? (c.hq || {})[key] : c[key];
     if (!v) return null;
     var bits = [v.date];
-    if (v.domain) bits.push(v.domain);
+    if (v.domain) bits.push(spaceUrl(v.domain));
     if (v.credits) bits.push(Number(v.credits).toLocaleString('ko-KR') + ' 크레딧');
     if (v.email) bits.push(v.email);
     return bits.filter(Boolean).join(' · ');
@@ -1226,17 +1232,17 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
       for (var i = 0; i < fields.length; i++) {
         var f = fields[i], x = String(v[f.key] || '').trim();
         if (f.required && !x) return josa(f.label, '을', '를') + ' 입력해 주세요.';
-        if (x && f.type === 'domain' && !/^(?=.{3,253}$)([a-z0-9-]+\.)+[a-z]{2,}$/i.test(x)) return '도메인 형식을 확인해 주세요. (예: ai.customer.co.kr)';
+        if (x && f.type === 'slug' && slugError(x)) return slugError(x);
         if (x && f.type === 'email' && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(x)) return '이메일 형식을 확인해 주세요.';
         if (x && f.type === 'number' && !(Number(x.replace(/,/g, '')) > 0)) return josa(f.label, '은', '는') + ' 0보다 큰 숫자로 입력해 주세요.';
       }
       return null;
     }
     function submit() { var err = check(); if (err) { setMsg(err); return; } setMsg(null); ask.show(); }
-    function clean() { var o = {}; fields.forEach(function (f) { var x = String(v[f.key] || '').trim(); if (x) o[f.key] = f.type === 'number' ? Number(x.replace(/,/g, '')) : f.type === 'domain' ? x.toLowerCase() : x; }); return o; }
+    function clean() { var o = {}; fields.forEach(function (f) { var x = String(v[f.key] || '').trim(); if (x) o[f.key] = f.type === 'number' ? Number(x.replace(/,/g, '')) : f.type === 'slug' ? x.toLowerCase() : x; }); return o; }
     if (ask.open) return h(ConfirmModal, {
       title: josa(step.label, '을', '를') + ' 기록할까요?', subTitle: props.customer,
-      items: fields.map(function (f) { var x = clean()[f.key]; return [f.label, x == null ? '' : f.type === 'number' ? Number(x).toLocaleString('ko-KR') : String(x)]; }),
+      items: fields.map(function (f) { var x = clean()[f.key]; return [f.label, x == null ? '' : f.type === 'number' ? Number(x).toLocaleString('ko-KR') : f.type === 'slug' ? spaceUrl(x) : String(x)]; }),
       note: step.owner === 'hq' ? '파트너 포털에 바로 보이고 결정 기록에 남아요.' : '본사 화면에 바로 보여요.', confirmLabel: '기록하기',
       busy: ask.busy, onCancel: ask.hide, onConfirm: function () { ask.run(async function () { try { await props.onSave(clean()); props.onClose(); } catch (err) { setMsg(errText(err)); } }); }
     });
@@ -1245,12 +1251,30 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
         fields.map(function (f) {
           var input = f.type === 'date' ? h('input', { id: 'st-' + f.key, className: 'native', type: 'date', value: v[f.key], onChange: function (ev) { set(f.key)(ev.target.value); } })
             : f.type === 'textarea' ? h('textarea', { id: 'st-' + f.key, className: 'textarea', value: v[f.key], onChange: function (ev) { set(f.key)(ev.target.value); } })
+            : f.type === 'slug' ? h(SlugInput, { id: 'st-' + f.key, value: v[f.key], onValue: set(f.key) })
             : f.type === 'number' ? h(T.TextInput, { id: 'st-' + f.key, inputType: 'number', thousandSeparator: ',', wrapperClassName: 'w-full', value: v[f.key], onChange: function (ev) { set(f.key)(ev.target.value); } })
             : h(Input, { id: 'st-' + f.key, type: f.type === 'email' ? 'email' : 'text', value: v[f.key], onValue: set(f.key) });
           return h(Field, { key: f.key, label: f.label, required: f.required, help: f.help }, input);
         }),
         msg ? h(Notice, { kind: 'danger' }, msg) : null),
       h('div', { slot: 'buttons' }, h(T.Button, { variant: 'grayScaleFilled', onClick: props.onClose }, '취소'), h(T.Button, { variant: 'primaryFilled', onClick: submit }, '기록하기')));
+  }
+
+  // 고객사 스페이스 주소: timelyai.io/ 뒤 경로만 입력. 영문자만, 소문자로 저장.
+  var SPACE_HOST = 'timelyai.io/';
+  var SLUG_MIN = 2, SLUG_MAX = 30;
+  function slugError(x) {
+    if (!x) return null;
+    if (!/^[a-z]+$/.test(x)) return '주소는 영문자만 입력할 수 있어요.';
+    if (x.length < SLUG_MIN || x.length > SLUG_MAX) return '주소는 ' + SLUG_MIN + '~' + SLUG_MAX + '자로 입력해 주세요.';
+    return null;
+  }
+  function spaceUrl(v) { return !v ? '' : /[./]/.test(v) ? v : SPACE_HOST + v; }   // 예전에 전체 도메인으로 저장된 값은 그대로 보여 준다
+  function SlugInput(props) {
+    return h('div', { className: 'slug-input' + (props.error ? ' error' : '') },
+      h('span', { className: 'slug-prefix', 'aria-hidden': 'true' }, SPACE_HOST),
+      h('input', { id: props.id, value: props.value, maxLength: SLUG_MAX, autoComplete: 'off', spellCheck: false, placeholder: props.placeholder || 'seoul', 'aria-label': '고객사 스페이스 주소 (' + SPACE_HOST + ' 뒤)',
+        onChange: function (e) { props.onValue(e.target.value.replace(/[^A-Za-z]/g, '').toLowerCase()); } }));
   }
 
   function lastDomain(c) { return (c.spaceRequested && c.spaceRequested.domain) || (c.pocRequested && c.pocRequested.domain) || c.domain || ''; }
@@ -1262,7 +1286,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
       h('div', { className: 'between' },
         h('div', { className: 'stack-s', style: { gap: 2 } },
           h('div', { className: 'row' }, P('head-sm-bold', c.name), props.partnerName ? h(T.Badge, { theme: 'gray' }, props.partnerName) : null),
-          P('body-sm-regular muted', [segLabel(c.segment), lastDomain(c)].filter(function (x) { return x && x !== '-'; }).join(' · ') || '도메인 미정')),
+          P('body-sm-regular muted', [segLabel(c.segment), spaceUrl(lastDomain(c)) || '주소 미정'].filter(function (x) { return x && x !== '-'; }).join(' · '))),
         h(T.Badge, { theme: st.theme, height: '24' }, st.text)),
       h(Stepper, { c: c, detail: true }),
       actions.length ? h('div', { className: 'row' }, actions.map(function (s) {
@@ -1292,7 +1316,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
       shown.length ? h('div', { className: 'stack' }, shown.map(function (c) { return h(CustomerCard, { key: c.id, c: c, role: 'partner', onAct: function (cc, k) { setAct({ c: cc, key: k }); } }); }))
         : h('div', { className: 'box empty body-md-regular' }, list.length ? '해당하는 고객사가 없어요.' : '아직 고객사가 없어요. 고객사 추가로 첫 고객사를 등록해 보세요.'),
       adding ? h(AddCustomerModal, { uid: uid, onClose: function () { setAdding(false); } }) : null,
-      act ? h(StepModal, { stepKey: act.key, customer: act.c.name, defaults: act.key === 'pocRequested' || act.key === 'spaceRequested' ? { domain: lastDomain(act.c) } : null, onClose: function () { setAct(null); },
+      act ? h(StepModal, { stepKey: act.key, customer: act.c.name, defaults: act.key === 'pocRequested' || act.key === 'spaceRequested' ? { domain: /^[a-z]+$/.test(lastDomain(act.c)) ? lastDomain(act.c) : '' } : null, onClose: function () { setAct(null); },
         onSave: function (val) { var o = {}; o[act.key] = Object.assign(val, { at: new Date().toISOString() }); o.updatedAt = new Date().toISOString(); return platform.db.doc('deals/' + uid + '/customers/' + act.c.id).update(o); } }) : null);
   }
 
@@ -1304,18 +1328,18 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
     function submit() {
       if (!v.name.trim()) { setMsg('고객사명을 입력해 주세요.'); return; }
       if (!v.segment) { setMsg('고객 유형을 골라 주세요.'); return; }
-      if (v.domain.trim() && !/^(?=.{3,253}$)([a-z0-9-]+\.)+[a-z]{2,}$/i.test(v.domain.trim())) { setMsg('도메인 형식을 확인해 주세요. (예: ai.customer.co.kr)'); return; }
+      if (slugError(v.domain)) { setMsg(slugError(v.domain)); return; }
       setMsg(null); ask.show();
     }
-    if (ask.open) return h(ConfirmModal, { title: '고객사를 추가할까요?', items: [['고객사명', v.name.trim()], ['고객 유형', v.segment], ['요청 도메인', v.domain.trim().toLowerCase()]], confirmLabel: '추가하기',
+    if (ask.open) return h(ConfirmModal, { title: '고객사를 추가할까요?', items: [['고객사명', v.name.trim()], ['고객 유형', v.segment], ['스페이스 주소', spaceUrl(v.domain)]], confirmLabel: '추가하기',
       busy: ask.busy, onCancel: ask.hide, onConfirm: function () { ask.run(async function () {
-        try { await platform.db.doc('deals/' + props.uid + '/customers/' + newId('c')).set({ name: v.name.trim(), segment: v.segment, domain: v.domain.trim().toLowerCase(), createdAt: new Date().toISOString() }); props.onClose(); }
+        try { await platform.db.doc('deals/' + props.uid + '/customers/' + newId('c')).set({ name: v.name.trim(), segment: v.segment, domain: v.domain, createdAt: new Date().toISOString() }); props.onClose(); }
         catch (err) { setMsg(errText(err)); } }); } });
     return h(T.Modal, { open: true, title: '고객사 추가', subTitle: 'PoC부터 시작하거나, 바로 계약 단계부터 기록할 수 있어요.', size: 'md', headerClose: true, onClose: props.onClose },
       h('div', { className: 'stack' },
         h(Field, { label: '고객사명', required: true }, h(Input, { id: 'cu-name', value: v.name, onValue: set('name') })),
         h(Field, { label: '고객 유형', required: true }, h(T.Dropdown, { options: SEGMENT_OPTIONS, value: v.segment, placeholder: '고객 유형 고르기', onSelect: set('segment') })),
-        h(Field, { label: '고객사 요청 도메인', help: '정해지지 않았으면 비워 두고, 스페이스를 요청할 때 입력해도 돼요.' }, h(Input, { id: 'cu-domain', value: v.domain, onValue: set('domain'), placeholder: 'ai.customer.co.kr' })),
+        h(Field, { label: '고객사 스페이스 주소', help: 'timelyai.io/ 뒤에 붙을 주소예요. 영문자만 ' + SLUG_MIN + '~' + SLUG_MAX + '자로 입력해요. 정해지지 않았으면 비워 두고 스페이스를 요청할 때 입력해도 돼요.' }, h(SlugInput, { id: 'cu-domain', value: v.domain, onValue: set('domain') })),
         msg ? h(Notice, { kind: 'danger' }, msg) : null),
       h('div', { slot: 'buttons' }, h(T.Button, { variant: 'grayScaleFilled', onClick: props.onClose }, '취소'), h(T.Button, { variant: 'primaryFilled', onClick: submit }, '추가하기')));
   }
