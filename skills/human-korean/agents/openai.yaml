@@ -1,0 +1,4 @@
+interface:
+  display_name: "HUMAN · 자연스러운 한국어"
+  short_description: "AI 답변과 문서를 읽기 편하고 사람다운 한국어로 작성합니다"
+  default_prompt: "Use $human-korean to write the requested output in natural, readable Korean, matching the audience and preserving necessary detail."
