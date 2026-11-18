@@ -16,6 +16,11 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
 .topbar { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20; background: var(--color-bg-default); border-bottom: 1px solid var(--color-borders-default); }
 .topbar .wrap { display: flex; align-items: center; justify-content: space-between; gap: 12px; height: 60px; max-width: none; }
 .brand { display: flex; align-items: center; gap: 8px; background: none; border: 0; padding: 0; cursor: pointer; color: var(--color-text-default); font: inherit; white-space: nowrap; }
+.brand-logo { display: flex; align-items: center; }
+.brand-logo img { height: 24px !important; width: auto !important; max-width: none; filter: none !important; }
+.brand-logo.logo-dark { display: none; }
+:root[data-theme="dark"] .brand-logo.logo-light { display: none; }
+:root[data-theme="dark"] .brand-logo.logo-dark { display: flex; }
 .brand-mark { width: 24px; height: 24px; border-radius: 8px; background: var(--color-primary-default); color: var(--color-text-button-fill-text); display: grid; place-items: center; font-weight: 700; font-size: 13px; }
 .nav { display: flex; align-items: center; gap: 4px; flex-wrap: nowrap; overflow-x: auto; }
 .nav-link { background: none; border: 0; cursor: pointer; padding: 8px 10px; border-radius: 8px; color: var(--color-text-light); font: inherit; white-space: nowrap; }
@@ -114,6 +119,8 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
 .qb { display: grid; grid-template-columns: minmax(320px, 460px) minmax(0, 1fr); gap: 24px; align-items: start; }
 .qpaper-scroll { overflow-x: auto; border: 1px solid var(--color-borders-default); border-radius: 8px; background: #fff; }
 .qpaper-scroll .qpaper { min-width: 640px; }
+.qlogo-preview { border: 1px solid var(--color-borders-default); border-radius: 8px; padding: 12px; background: #fff; width: max-content; max-width: 100%; }
+.qlogo-preview img { display: block; max-height: 48px; max-width: 200px; }
 .qfold { border: 1px solid var(--color-borders-default); border-radius: 12px; padding: 14px 16px; }
 .qfold summary { cursor: pointer; }
 .qitem { border: 1px solid var(--color-borders-default); border-radius: 12px; padding: 16px; background: var(--color-bg-light); }
@@ -765,8 +772,9 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
     return h('header', { className: 'topbar' },
       h('div', { className: 'wrap' },
         h('button', { className: 'brand', 'aria-label': 'Timely Partner Network 홈', onClick: function () { props.go('home'); } },
-          h('span', { className: 'brand-mark', 'aria-hidden': 'true' }, 'T'),
-          h('span', { className: 'head-sm-bold brand-text' }, 'Timely Partner Network')),
+          h('span', { className: 'brand-logo logo-light', 'aria-hidden': 'true' }, h(T.Icon, { name: 'IconExtraLogov3Black', size: 24, alt: '' })),
+          h('span', { className: 'brand-logo logo-dark', 'aria-hidden': 'true' }, h(T.Icon, { name: 'IconExtraLogov3White', size: 24, alt: '' })),
+          h('span', { className: 'body-lg-medium muted brand-text' }, 'Partner Network')),
         h('nav', { className: 'nav body-md-medium', 'aria-label': '주요 메뉴' }, items.map(function (it) {
           return h('button', { key: it[0], className: 'nav-link ' + (it[2] || ''), 'aria-current': props.view === it[0] ? 'page' : null, onClick: function () { props.go(it[0]); } }, it[1]);
         }).concat(props.user
@@ -1025,7 +1033,8 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
     var quotes = quotesQ.rows.slice().sort(function (a, b) { return String(b.updatedAt).localeCompare(String(a.updatedAt)); });
     var qvs = useState(null), qv = qvs[0], setQv = qvs[1];        // 견적 작성·발행본 조회 화면
     var qqs = useState(null), quoteQuery = qqs[0], setQuoteQuery = qqs[1];
-    function quoteCtx(customer, type) { return { customer: customer, type: type, app: props.app, user: auth.user }; }
+    var quoteDefaults = useDoc('deals/' + uid + '/quoteDefaults/main');
+    function quoteCtx(customer, type) { return { customer: customer, type: type, app: props.app, user: auth.user, logo: quoteDefaults.data && quoteDefaults.data.logo }; }
     function openNewQuote(customer) {
       var type = customer ? (customer.contracted ? 'ai' : 'poc') : 'router';
       setQv({ mode: 'edit', init: { quote: newQuote(quoteCtx(customer, type)) } }); window.scrollTo(0, 0);
@@ -1458,7 +1467,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
       fx: { on: false, rate: '1400', date: t, source: '서울외국환중개 매매기준율' },
       terms: { balance: '미정', refund: '미정', extension: '미정', freeKind: '프로모션', order: '미정' },
       ai: { discount: '0', items: [newAiItem()] },
-      settings: { supplier: app.company || '', bizno: app.bizno || '', address: app.address || '', phone: app.phone || user.phone || '', email: user.email || app.email || '', subject: '', basis: '담당자 입력 · 별도 합의', vat: 'excl', round: '1' }
+      settings: { supplier: app.company || '', bizno: app.bizno || '', address: app.address || '', phone: app.phone || user.phone || '', email: user.email || app.email || '', subject: '', basis: '담당자 입력 · 별도 합의', vat: 'excl', round: '1', logo: o.logo || { kind: 'none' } }
     };
   }
 
@@ -1538,6 +1547,37 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
     return out;
   }
 
+  // 견적서 로고: 없음 / 타임리 AI 로고 / 직접 올린 이미지(PNG·JPEG 데이터 주소만 허용)
+  var LOGO_MAX_CHARS = 80000;
+  function quoteLogoSrc(logo) {
+    if (!logo || logo.kind === 'none') return '';
+    if (logo.kind === 'timely') { var el = document.querySelector('.brand-logo.logo-light img'); return el ? el.src : ''; }
+    return /^data:image\/(png|jpeg);base64,[A-Za-z0-9+/=]+$/.test(logo.src || '') ? logo.src : '';
+  }
+  // 올린 이미지를 400×120 안에 맞게 줄여 PNG(너무 크면 JPEG)로 다시 만든다.
+  function readLogoFile(file) {
+    return new Promise(function (resolve, reject) {
+      if (!/^image\/(png|jpeg|webp)$/.test(file.type)) { reject('PNG, JPG, WEBP 이미지만 올릴 수 있어요.'); return; }
+      if (file.size > 5 * 1024 * 1024) { reject('5MB 이하 이미지를 올려 주세요.'); return; }
+      var fr = new FileReader();
+      fr.onerror = function () { reject('이미지를 읽지 못했어요.'); };
+      fr.onload = function () {
+        var img = new Image();
+        img.onerror = function () { reject('이미지를 읽지 못했어요. 다른 파일로 시도해 주세요.'); };
+        img.onload = function () {
+          var k = Math.min(1, 400 / img.width, 120 / img.height), w = Math.max(1, Math.round(img.width * k)), hh = Math.max(1, Math.round(img.height * k));
+          var cv = document.createElement('canvas'); cv.width = w; cv.height = hh;
+          var cx = cv.getContext('2d'); cx.drawImage(img, 0, 0, w, hh);
+          var out = cv.toDataURL('image/png');
+          if (out.length > LOGO_MAX_CHARS) { cx.globalCompositeOperation = 'destination-over'; cx.fillStyle = '#fff'; cx.fillRect(0, 0, w, hh); out = cv.toDataURL('image/jpeg', 0.85); }
+          if (out.length > LOGO_MAX_CHARS) reject('이미지가 너무 복잡해요. 더 단순한 로고 파일로 시도해 주세요.'); else resolve(out);
+        };
+        img.src = fr.result;
+      };
+      fr.readAsDataURL(file);
+    });
+  }
+
   function hx(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
   function dash(s) { var t = String(s == null ? '' : s).trim(); return t ? hx(t) : '—'; }
   // 견적서 본문 HTML. 미리보기와 저장 파일이 같은 내용을 쓴다. 발행본에는 검사 문구를 넣지 않는다.
@@ -1561,7 +1601,8 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
       if (String(q.terms.etc || '').trim()) notes.push('기타 제안사항 : ' + hx(q.terms.etc.trim()));
     }
     function line(l, i, arr) { return '<div class="qline' + (i === arr.length - 1 ? ' strong' : '') + '"><span>' + hx(l[0]) + '</span><span>' + (l[1] < 0 ? '−' : '') + wonFull(Math.abs(l[1])) + '</span></div>'; }
-    return '<div class="qsup"><b>' + dash(s.supplier) + '</b><div>사업자등록번호 : ' + dash(s.bizno) + '</div><div>주소 : ' + dash(s.address) + '</div><div>TEL : ' + dash(s.phone) + '</div></div>' +
+    var logo = quoteLogoSrc(s.logo);
+    return '<div class="qhead"><div class="qlogo">' + (logo ? '<img alt="" src="' + hx(logo) + '">' : '') + '</div><div class="qsup"><b>' + dash(s.supplier) + '</b><div>사업자등록번호 : ' + dash(s.bizno) + '</div><div>주소 : ' + dash(s.address) + '</div><div>TEL : ' + dash(s.phone) + '</div></div></div>' +
       '<h1>견 적 서</h1>' +
       '<table class="qinfo"><tbody>' +
       '<tr><th>건 명</th><td colspan="3">' + hx(s.subject.trim() || QSUBJECT[q.type]) + '</td></tr>' +
@@ -1581,6 +1622,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
   }
   var QDOC_CSS = '.qpaper{background:#fff;color:#16181a;font-family:Pretendard,-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;font-size:12px;line-height:1.55;letter-spacing:-.2px;padding:40px 44px;word-break:keep-all}' +
     '.qpaper h1{font-size:22px;text-align:center;margin:8px 0 18px;letter-spacing:6px}.qpaper h2{font-size:13px;margin:20px 0 8px}' +
+    '.qpaper .qhead{display:flex;justify-content:space-between;align-items:flex-start;gap:16px}.qpaper .qlogo img{display:block;max-height:48px;max-width:200px}' +
     '.qpaper .qsup{margin-left:auto;width:max-content;max-width:60%;border:1px solid #9aa0a6;padding:8px 12px;font-size:11px}.qpaper .qsup b{font-size:13px}' +
     '.qpaper table{width:100%;border-collapse:collapse;table-layout:fixed}.qpaper th,.qpaper td{border:1px solid #9aa0a6;padding:6px 8px;text-align:left;vertical-align:top;overflow-wrap:anywhere}' +
     '.qpaper th,.qpaper td{font-size:12px;line-height:1.5;color:#16181a}.qpaper .qitems th{white-space:nowrap;padding-left:2px;padding-right:2px}' +
@@ -1739,7 +1781,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
       issueAsk.open ? h(ConfirmModal, { title: '발행본으로 저장할까요?', subTitle: q.customer.name.trim() + ' · ' + QTYPES[q.type], items: [['총 견적금액', wonFull(calc.total) + ' (VAT 포함)'], ['이용기간', q.start + ' ~ ' + q.end], ['견적 유효일', q.validUntil]],
         note: '발행본은 새 견적번호로 저장되고 고칠 수 없어요. 고객사에 보내는 일은 따로 하셔야 해요.', confirmLabel: '발행본 저장', busy: issueAsk.busy, onCancel: issueAsk.hide,
         onConfirm: function () { issueAsk.run(async function () { try { var r = await persist(true); props.onIssued(Object.assign({ id: r.id }, r.body), r.issue); } catch (err) { setMsg({ kind: 'danger', text: errText(err) }); } }); } }) : null,
-      settingsOpen ? h(QuoteSettings, { q: q, onChange: function (sv) { set('settings')(sv); }, onClose: function () { setSettingsOpen(false); } }) : null,
+      settingsOpen ? h(QuoteSettings, { uid: props.uid, q: q, onChange: function (sv) { set('settings')(sv); }, onClose: function () { setSettingsOpen(false); } }) : null,
       h('div', { className: 'between' },
         h('div', { className: 'stack-s', style: { gap: 2 } }, P('head-md-bold title', '견적서 작성'), P('body-md-regular muted num', q.number + (m.rev ? ' · 수정 버전 ' + m.rev : ' · 저장 전'))),
         h('div', { className: 'row' }, h(T.Button, { type: 'button', variant: 'grayScaleOutline', size: 'small', onClick: function () { setSettingsOpen(true); } }, '견적서 설정'), h(T.Button, { type: 'button', variant: 'grayScaleOutline', size: 'small', onClick: props.onExit }, '견적 내역으로'))),
@@ -1765,6 +1807,19 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
     var q = props.q, sv = q.settings;
     function set(k) { return function (v) { var n = Object.assign({}, sv); n[k] = v; props.onChange(n); }; }
     function fld(label, node, help) { return h(Field, { label: label, help: help }, node); }
+    var lm = useState(null), logoMsg = lm[0], setLogoMsg = lm[1];
+    var logo = sv.logo || { kind: 'none' }, LOGO_KINDS = { none: '없음', timely: '타임리 AI 로고', custom: '직접 올리기' };
+    function setLogoKind(label) { var k = Object.keys(LOGO_KINDS).filter(function (x) { return LOGO_KINDS[x] === label; })[0]; setLogoMsg(null); set('logo')(k === 'custom' ? { kind: 'custom', src: logo.src || '' } : { kind: k }); }
+    async function onLogoFile(ev) {
+      var file = ev.target.files && ev.target.files[0]; ev.target.value = '';
+      if (!file) return;
+      try { set('logo')({ kind: 'custom', src: await readLogoFile(file) }); setLogoMsg(null); } catch (err) { setLogoMsg({ kind: 'danger', text: String(err) }); }
+    }
+    async function saveDefaultLogo() {
+      if (logo.kind === 'custom' && !quoteLogoSrc(logo)) { setLogoMsg({ kind: 'danger', text: '먼저 로고 이미지를 올려 주세요.' }); return; }
+      try { await platform.db.doc('deals/' + props.uid + '/quoteDefaults/main').set({ logo: logo, updatedAt: new Date().toISOString() }); setLogoMsg({ kind: 'ok', text: '기본 로고로 저장했어요. 새 견적부터 이 로고가 들어가요.' }); }
+      catch (err) { setLogoMsg({ kind: 'danger', text: errText(err) }); }
+    }
     return h(T.Modal, { open: true, title: '견적서 설정', subTitle: '이 견적에만 적용되고 미리보기에 바로 반영돼요.', size: 'lg', headerClose: true, onClose: props.onClose },
       h('div', { className: 'stack', style: { maxHeight: '60vh', overflowY: 'auto', paddingRight: 4 } },
         q.type === 'ai' ? h(F, null, P('head-sm-bold', 'AI 가격 · 단위 설정'),
@@ -1772,6 +1827,14 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
           h('div', { className: 'form-grid' },
             fld('VAT 기준', h(QSel, { id: 'qs-vat', label: 'VAT 기준', options: VAT_MODES, value: sv.vat, onValue: set('vat') }), 'VAT 기준을 바꾸어도 입력 단가는 그대로 유지됩니다.'),
             fld('절사 단위', h(QSel, { id: 'qs-round', label: '절사 단위', options: ['1', '10', '100', '1000', '10000'], value: sv.round, onValue: set('round') })))) : null,
+        P('head-sm-bold', '견적서 로고'),
+        h(Radio, { options: Object.keys(LOGO_KINDS).map(function (k) { return LOGO_KINDS[k]; }), value: LOGO_KINDS[logo.kind] || '없음', onValue: setLogoKind }),
+        logo.kind === 'custom' ? h('div', { className: 'stack-s' },
+          h('input', { id: 'qs-logo-file', type: 'file', accept: 'image/png,image/jpeg,image/webp', className: 'body-md-regular', onChange: onLogoFile, 'aria-label': '로고 이미지 파일' }),
+          P('body-sm-regular muted', 'PNG, JPG, WEBP · 견적서 왼쪽 위에 최대 높이 48px로 들어가요. 올린 이미지는 작게 줄여 저장해요.')) : null,
+        quoteLogoSrc(logo) ? h('div', { className: 'qlogo-preview' }, h('img', { src: quoteLogoSrc(logo), alt: '견적서 로고 미리보기' })) : null,
+        h('div', null, h(T.Button, { type: 'button', size: 'small', variant: 'grayScaleOutline', onClick: saveDefaultLogo }, '기본 로고로 저장')),
+        logoMsg ? h(Notice, { kind: logoMsg.kind }, logoMsg.text) : null,
         P('head-sm-bold', '공급자 · 공통 문서'),
         h('div', { className: 'form-grid' },
           fld('공급자명', h(Input, { id: 'qs-supplier', value: sv.supplier, onValue: set('supplier'), maxLength: 2000 })),

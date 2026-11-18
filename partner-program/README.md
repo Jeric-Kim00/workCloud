@@ -23,6 +23,7 @@ Timely AI · Timely Router 통합 리셀러/총판 파트너 프로그램 검토
 
 조직 기본 디자인 시스템인 [타임리 AI 디자인 시스템](https://claude.ai/artifact/TKYtZQh25DEXJooEKNHjji)을 그대로 씁니다.
 
+- 상단 바 로고는 디자인 시스템 아이콘 묶음의 `IconExtraLogov3Black` / `IconExtraLogov3White`(다크 모드)입니다.
 - `components/bundle.css`: 토큰, 글자 클래스, Pretendard
 - `components/bundle.js`: `window.Timely` React 컴포넌트. Button, Badge, Table, Modal, Tabs, Dropdown, TextInput, Checkbox, RadioButton, LabelContainer, DashboardSidebar를 사용합니다.
 - 이 파일들은 게시할 때 디자인 시스템 아티팩트에서 복사합니다. 저장소에는 넣지 않았습니다.
@@ -73,6 +74,7 @@ Timely AI · Timely Router 통합 리셀러/총판 파트너 프로그램 검토
 - **상태**: 작성 중 → 발행본 저장. 발행본은 새 견적번호로 발행 당시 내용을 그대로 보관하고 고칠 수 없습니다. "복사하여 새 견적"으로 새 초안을 만듭니다.
 - **견적번호**: `TPN-YYYYMMDD-XXXXXXXX`(한국 날짜 + 무작위 16진수 8자리). 직접 고칠 수 있습니다.
 - **공급자 정보**: 파트너 신청서의 회사명·사업자등록번호·주소·전화와 로그인 계정의 이름·이메일이 기본값이고, "견적서 설정"에서 견적마다 바꿀 수 있습니다.
+- **로고**: "견적서 설정"에서 없음 / 타임리 AI 로고 / 직접 올리기 중에 고릅니다. 올린 이미지(PNG·JPG·WEBP)는 400×120 안으로 줄여 견적에 함께 저장하고, 견적서 왼쪽 위에 최대 높이 48px로 들어갑니다. "기본 로고로 저장"을 누르면 새 견적부터 그 로고가 기본으로 들어갑니다(`deals/<파트너>/quoteDefaults/main`).
 - **파일 저장**: "견적서 파일 저장"은 인쇄용 HTML 파일을 내려받습니다. 브라우저로 열어 인쇄하면 PDF로 만들 수 있습니다. 이 페이지 안에서는 인쇄 창을 띄울 수 없어 이 방식으로 했습니다.
 - **참고 사이트와 다른 점**: 비교안별 견적, 견적서 컬럼 편집, JSON 파일 저장·불러오기, 후속 담당자 인수인계, 변경 이력은 넣지 않았습니다. 참고 사이트에서 확인하지 못한 부분(개발 비용 품명, 세부 조건이 견적서에 나오는 모양)은 "개발 비용", 기타사항에 "라벨 : 값" 한 줄씩으로 정했습니다.
 
