@@ -1392,6 +1392,44 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
       h('div', { slot: 'buttons' }, h(T.Button, { variant: 'grayScaleFilled', onClick: props.onClose }, '취소'), h(T.Button, { variant: 'primaryFilled', onClick: submit }, '추가하기')));
   }
 
+  function AdminQuotes(props) {
+    var c = props.ctx;
+    var f = useState({ query: '', type: '', partner: '' }), flt = f[0], setFlt = f[1];
+    var o = useState(null), open = o[0], setOpen = o[1];
+    var ms = useState(null), msg = ms[0], setMsg = ms[1];
+    function set(k) { return function (v) { var n = Object.assign({}, flt); n[k] = v; setFlt(n); }; }
+    function pname(id) { return (c.partnerById[id] || {}).company || '-'; }
+    var partnerOpts = { '': '전체 파트너' };
+    c.issuedQuotes.forEach(function (x) { partnerOpts[x.partnerId] = pname(x.partnerId); });
+    var rows = c.issuedQuotes.filter(function (x) {
+      if (flt.type && x.type !== flt.type) return false;
+      if (flt.partner && x.partnerId !== flt.partner) return false;
+      var hay = (x.customerName + ' ' + x.issue.number + ' ' + x.draftNumber + ' ' + pname(x.partnerId)).toLowerCase();
+      return !flt.query.trim() || hay.indexOf(flt.query.trim().toLowerCase()) >= 0;
+    });
+    var sum = rows.reduce(function (a, x) { return a + (x.total || 0); }, 0);
+    return h(F, null,
+      PageHead('발행 견적서', '파트너가 고객사에 발행한 견적서를 모두 볼 수 있어요. 보기 전용이고, 작성 중인 초안은 나오지 않아요.'),
+      h('div', { className: 'kpis', style: { width: '100%' } }, Kpi('발행 견적서', c.issuedQuotes.length + '건'), Kpi('조회 결과', rows.length + '건'), Kpi('조회 결과 금액 합계', wonFull(sum), 'VAT 포함')),
+      h('div', { className: 'qfilters', style: { width: '100%' } },
+        h(T.TextInput, { id: 'aq-query', placeholder: '고객명, 견적번호, 파트너로 찾기', suffixIcon: 'Icon16pxIcSearch', wrapperClassName: 'w-full', value: flt.query, onChange: function (e) { set('query')(e.target.value); } }),
+        h(QSel, { id: 'aq-type', label: '유형', options: Object.assign({ '': '전체 유형' }, QTYPES), value: flt.type, onValue: set('type') }),
+        h(QSel, { id: 'aq-partner', label: '파트너', options: partnerOpts, value: flt.partner, onValue: set('partner') })),
+      h('div', { style: { width: '100%' } }, h(DataTable, { cols: ['발행일', '파트너', '고객명', '견적번호', '유형', '버전', '금액 (VAT 포함)', '조회'],
+        empty: c.issuedQuotes.length ? '조건에 맞는 견적서가 없어요. 검색 조건을 바꿔 보세요.' : '아직 발행된 견적서가 없어요.',
+        rows: rows.map(function (x) {
+          return h('tr', { key: x.key }, h(T.TD, null, h('span', { className: 'num' }, shortDate(x.issue.at))), h(T.TD, null, pname(x.partnerId)), h(T.TD, null, h('span', { className: 'body-md-bold' }, x.customerName || '-')),
+            h(T.TD, null, h('span', { className: 'num' }, x.issue.number)), h(T.TD, null, QTYPES[x.type]), h(T.TD, null, 'v' + x.issue.v), h(T.TD, null, h('span', { className: 'num' }, wonFull(x.total || 0))),
+            h(T.TD, null, h(T.Button, { size: 'small', variant: 'grayScaleOutline', onClick: function () { setMsg(null); setOpen(x); } }, '열기')));
+        }) })),
+      open ? h(T.Modal, { open: true, title: (open.customerName || '고객명 없음') + ' · ' + open.issue.number, subTitle: pname(open.partnerId) + ' · v' + open.issue.v + ' · ' + shortDate(open.issue.at) + ' 발행', size: 'xl', headerClose: true, onClose: function () { setOpen(null); } },
+        h('div', { className: 'stack', style: { maxHeight: '65vh', overflowY: 'auto', paddingRight: 4 } },
+          msg ? h(Notice, { kind: msg.kind }, msg.text) : null,
+          h(QuotePaper, { q: open.issue.snapshot, issueNumber: open.issue.number })),
+        h('div', { slot: 'buttons' }, h(T.Button, { variant: 'grayScaleFilled', onClick: function () { setOpen(null); } }, '닫기'),
+          h(T.Button, { variant: 'primaryFilled', onClick: async function () { var r = await saveQuoteFile(open.issue.snapshot, open.issue.number); if (r) setMsg(r); } }, '견적서 파일 저장'))) : null);
+  }
+
   function AdminCustomers(props) {
     var c = props.ctx;
     var f = useState('본사 처리 대기'), filter = f[0], setFilter = f[1];
@@ -1906,6 +1944,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
     { key: 'applications', label: '파트너 신청', icon: 'Icon16pxIcEmail' },
     { key: 'partners', label: '파트너 관리', icon: 'Icon16pxIcGroup' },
     { key: 'customers', label: '고객사 진행', icon: 'Icon16pxIcSidebarSpace' },
+    { key: 'quotes', label: '발행 견적서', icon: 'Icon16pxIcDocument' },
     { key: 'deals', label: '딜 검토', icon: 'Icon16pxIcSidebarFolder', activeIcon: 'Icon16pxIcSidebarFolderColor' },
     { key: 'rebates', label: '리베이트 결정', icon: 'Icon16pxIcPayments', activeIcon: 'Icon16pxIcPaymentsColor' },
     { key: 'log', label: '결정 기록', icon: 'Icon16pxIcList' }
@@ -1923,6 +1962,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
     var dealsMap = useMany(approvedIds.map(function (id) { return 'deals/' + id + '/items'; }));
     var reviewMap = useMany(approvedIds.map(function (id) { return 'partners/' + id + '/dealReviews'; }));
     var custMap = useMany(approvedIds.map(function (id) { return 'deals/' + id + '/customers'; }));
+    var quoteMap = useMany(approvedIds.map(function (id) { return 'deals/' + id + '/quotes'; }));
     var custRevMap = useMany(approvedIds.map(function (id) { return 'partners/' + id + '/customerReviews'; }));
     var nameOf = useNames(log.rows.map(function (r) { return r.by; }).concat(partners.rows.map(function (r) { return r.decidedBy; })));
 
@@ -1946,9 +1986,17 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
       (custMap['deals/' + pid + '/customers'] || []).forEach(function (x) { customers.push(Object.assign({}, x, { partnerId: pid, hq: rv[x.id] || {} })); });
     });
     customers.sort(function (a, b) { return String(b.updatedAt || b.createdAt).localeCompare(String(a.updatedAt || a.createdAt)); });
+    // 발행본 한 건이 한 줄. 초안은 관리자 목록에 넣지 않는다.
+    var issuedQuotes = [];
+    approvedIds.forEach(function (pid) {
+      (quoteMap['deals/' + pid + '/quotes'] || []).forEach(function (d) {
+        (d.issues || []).forEach(function (i) { issuedQuotes.push({ key: pid + d.id + i.number, partnerId: pid, draftNumber: d.number, issue: i, type: i.snapshot.type, customerName: i.snapshot.customer.name, total: i.total }); });
+      });
+    });
+    issuedQuotes.sort(function (a, b) { return String(b.issue.at).localeCompare(String(a.issue.at)); });
     var hqWaiting = customers.filter(function (x) { return custStatus(x).owner === 'hq'; });
 
-    var ctx = { apps: apps.rows, partners: partners.rows, partnerById: partnerById, appById: appById, deals: allDeals, customers: customers, log: log.rows, nameOf: nameOf, go: setSec };
+    var ctx = { apps: apps.rows, partners: partners.rows, partnerById: partnerById, appById: appById, deals: allDeals, customers: customers, issuedQuotes: issuedQuotes, log: log.rows, nameOf: nameOf, go: setSec };
     var items = ADMIN_MENU.map(function (m) {
       return { label: m.label, to: '/admin/' + m.key, icon: m.icon, activeIcon: m.activeIcon || m.icon, isNew: (m.key === 'applications' && pendingApps.length > 0) || (m.key === 'deals' && pendingDeals.length > 0) || (m.key === 'customers' && hqWaiting.length > 0) };
     });
@@ -1960,6 +2008,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
     var view = {
       overview: h(AdminOverview, { ctx: ctx, pendingApps: pendingApps, pendingDeals: pendingDeals, hqWaiting: hqWaiting }),
       customers: h(AdminCustomers, { ctx: ctx }),
+      quotes: h(AdminQuotes, { ctx: ctx }),
       applications: h(AdminApplications, { ctx: ctx }),
       partners: h(AdminPartners, { ctx: ctx }),
       deals: h(AdminDeals, { ctx: ctx }),
