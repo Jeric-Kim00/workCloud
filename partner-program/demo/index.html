@@ -110,6 +110,15 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
 .clabel { color: var(--color-text-default); }
 .cowner { color: var(--color-text-neutral); }
 .cinfo { color: var(--color-text-light); overflow-wrap: anywhere; }
+/* 견적서 */
+.qb { display: grid; grid-template-columns: minmax(320px, 460px) minmax(0, 1fr); gap: 24px; align-items: start; }
+.qpaper-scroll { overflow-x: auto; border: 1px solid var(--color-borders-default); border-radius: 8px; background: #fff; }
+.qpaper-scroll .qpaper { min-width: 640px; }
+.qfold { border: 1px solid var(--color-borders-default); border-radius: 12px; padding: 14px 16px; }
+.qfold summary { cursor: pointer; }
+.qitem { border: 1px solid var(--color-borders-default); border-radius: 12px; padding: 16px; background: var(--color-bg-light); }
+.qfilters { display: grid; grid-template-columns: minmax(0, 1fr) 160px 160px; gap: 8px; }
+@media (max-width: 960px) { .qb { grid-template-columns: 1fr; } .qfilters { grid-template-columns: 1fr; } }
 .slug-input { display: flex; align-items: stretch; height: 40px; border: 1px solid var(--color-borders-default); border-radius: 8px; background: var(--color-bg-default); overflow: hidden; }
 .slug-input:focus-within { border-color: var(--color-borders-primary); }
 .slug-input.error { border-color: var(--color-borders-danger); }
@@ -1011,6 +1020,24 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
   function PortalApp(props) {
     var p = platform, uid = props.uid, partner = props.partner;
     var t = useState('대시보드'), tab = t[0], setTab = t[1];
+    var auth = useAuth();
+    var quotesQ = useCol('deals/' + uid + '/quotes');
+    var quotes = quotesQ.rows.slice().sort(function (a, b) { return String(b.updatedAt).localeCompare(String(a.updatedAt)); });
+    var qvs = useState(null), qv = qvs[0], setQv = qvs[1];        // 견적 작성·발행본 조회 화면
+    var qqs = useState(null), quoteQuery = qqs[0], setQuoteQuery = qqs[1];
+    function quoteCtx(customer, type) { return { customer: customer, type: type, app: props.app, user: auth.user }; }
+    function openNewQuote(customer) {
+      var type = customer ? (customer.contracted ? 'ai' : 'poc') : 'router';
+      setQv({ mode: 'edit', init: { quote: newQuote(quoteCtx(customer, type)) } }); window.scrollTo(0, 0);
+    }
+    function openEditQuote(d) { setQv({ mode: 'edit', init: { id: d.id, rev: d.rev, issues: d.issues || [], createdAt: d.createdAt, copiedFrom: d.copiedFrom, quote: JSON.parse(JSON.stringify(d.quote)) } }); window.scrollTo(0, 0); }
+    function openCopyQuote(d, issue) {
+      var base = newQuote(quoteCtx(null, issue.snapshot.type)), copy = JSON.parse(JSON.stringify(issue.snapshot));
+      copy.number = base.number; copy.quoteDate = base.quoteDate; copy.validUntil = base.validUntil;
+      setQv({ mode: 'edit', init: { quote: copy, copiedFrom: issue.number } }); window.scrollTo(0, 0);
+    }
+    function openIssued(d, issue, fresh) { setQv({ mode: 'issued', doc: d, issue: issue, fresh: fresh }); window.scrollTo(0, 0); }
+    function exitQuote() { setQv(null); setTab('견적서'); window.scrollTo(0, 0); }
     var dealsQ = useCol('deals/' + uid + '/items');
     var reviewsQ = useCol('partners/' + uid + '/dealReviews');
     var rebatesQ = useCol('partners/' + uid + '/rebates');
@@ -1065,7 +1092,9 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
       body = h(F, null, h(DealForm, { uid: uid, pricing: pricingOf(partner) }), P('head-sm-bold', '전체 딜'),
         h(DataTable, { cols: dealCols, rows: dealRows(deals, true), empty: '등록한 딜이 없어요.' }));
     } else if (tab === '고객사 진행') {
-      body = h(PortalCustomers, { uid: uid });
+      body = h(PortalCustomers, { uid: uid, quotes: quotes, onNewQuote: openNewQuote, onShowQuotes: function (c) { setQuoteQuery(c.name); setTab('견적서'); } });
+    } else if (tab === '견적서') {
+      body = h(PortalQuotes, { quotes: quotes, initialQuery: quoteQuery, onNew: openNewQuote, onEdit: openEditQuote, onView: function (d, i) { openIssued(d, i, false); }, onCopy: openCopyQuote });
     } else if (tab === '리베이트') {
       body = h(F, null,
         P('body-md-regular muted', '리베이트는 본사가 정량 실적과 정성 평가를 함께 보고 결정해요. 이 화면에는 결정 결과만 보여요.'),
@@ -1095,9 +1124,11 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
       onConfirm: function () { stageAsk.run(function () { return saveStage(pendingStage.deal, pendingStage.value).catch(function () {}); }).then(function () { setPendingStage(null); }); }
     }) : null;
 
+    if (qv && qv.mode === 'edit') return h(QuoteBuilder, { key: qv.init.quote.number, uid: uid, init: qv.init, onExit: exitQuote, onIssued: function (d, issue) { openIssued(d, issue, true); } });
+    if (qv && qv.mode === 'issued') return h(IssuedQuote, { key: qv.issue.number, doc: qv.doc, issue: qv.issue, fresh: qv.fresh, onExit: exitQuote, onCopy: openCopyQuote });
     return h('div', { className: 'wrap section stack', style: { gap: 20 } }, stageModal,
       h('div', { className: 'portal-head' }, PageHead('파트너 포털', (partner.company || '파트너') + ' · ' + (partner.tier || 'Registered') + ' 등급')),
-      h('div', { className: 'tabs-line' }, h(T.Tabs, { tabs: ['대시보드', '고객사 진행', '딜 등록·관리', '리베이트', '교육·자료', '파트너 정보'], value: tab, onChange: setTab })),
+      h('div', { className: 'tabs-line' }, h(T.Tabs, { tabs: ['대시보드', '고객사 진행', '견적서', '딜 등록·관리', '리베이트', '교육·자료', '파트너 정보'], value: tab, onChange: function (x) { if (x !== '견적서') setQuoteQuery(null); setTab(x); } })),
       body);
   }
 
@@ -1289,6 +1320,14 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
           P('body-sm-regular muted', [segLabel(c.segment), spaceUrl(lastDomain(c)) || '주소 미정'].filter(function (x) { return x && x !== '-'; }).join(' · '))),
         h(T.Badge, { theme: st.theme, height: '24' }, st.text)),
       h(Stepper, { c: c, detail: true }),
+      props.onNewQuote ? (function () {
+        var qs = (props.quotes || []).filter(function (d) { return d.customerId === c.id; }), issued = qs.filter(function (d) { return d.status === 'issued'; }).length;
+        return h('div', { className: 'between' },
+          P('body-sm-regular muted', qs.length ? '견적서 ' + qs.length + '건 · 발행 ' + issued + '건' : '아직 견적서가 없어요.'),
+          h('div', { className: 'row' },
+            qs.length ? h(T.Button, { size: 'small', variant: 'grayScaleOutline', onClick: function () { props.onShowQuotes(c); } }, '견적서 보기') : null,
+            h(T.Button, { size: 'small', variant: 'grayScaleOutline', onClick: function () { props.onNewQuote(c); } }, '견적서 작성')));
+      })() : null,
       actions.length ? h('div', { className: 'row' }, actions.map(function (s) {
         return h(T.Button, { key: s.key, size: 'small', variant: st.step && st.step.key === s.key ? 'primaryFilled' : 'grayScaleOutline', onClick: function () { props.onAct(c, s.key); } }, s.no + '. ' + s.label + ' 기록');
       })) : (props.role === 'partner' && st.owner === 'hq' ? P('body-sm-regular muted', '본사가 처리하면 여기에 바로 반영돼요.') : null));
@@ -1313,7 +1352,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
         h(T.Button, { variant: 'primaryFilled', size: 'small', prefixIcon: 'Icon16pxIcPlusWhite', onClick: function () { setAdding(true); } }, '고객사 추가')),
       h('div', { className: 'kpis' }, Kpi('전체 고객사', list.length + '곳'), Kpi('내가 할 일', counts['내가 할 일'] + '곳'), Kpi('본사 처리 대기', counts['본사 처리 대기'] + '곳'), Kpi('지급 완료', counts['완료'] + '곳')),
       h('div', { className: 'tabs-line' }, h(T.Tabs, { tabs: ['전체', '내가 할 일', '본사 처리 대기', '완료'], value: filter, onChange: setFilter })),
-      shown.length ? h('div', { className: 'stack' }, shown.map(function (c) { return h(CustomerCard, { key: c.id, c: c, role: 'partner', onAct: function (cc, k) { setAct({ c: cc, key: k }); } }); }))
+      shown.length ? h('div', { className: 'stack' }, shown.map(function (c) { return h(CustomerCard, { key: c.id, c: c, role: 'partner', quotes: props.quotes, onNewQuote: props.onNewQuote, onShowQuotes: props.onShowQuotes, onAct: function (cc, k) { setAct({ c: cc, key: k }); } }); }))
         : h('div', { className: 'box empty body-md-regular' }, list.length ? '해당하는 고객사가 없어요.' : '아직 고객사가 없어요. 고객사 추가로 첫 고객사를 등록해 보세요.'),
       adding ? h(AddCustomerModal, { uid: uid, onClose: function () { setAdding(false); } }) : null,
       act ? h(StepModal, { stepKey: act.key, customer: act.c.name, defaults: act.key === 'pocRequested' || act.key === 'spaceRequested' ? { domain: /^[a-z]+$/.test(lastDomain(act.c)) ? lastDomain(act.c) : '' } : null, onClose: function () { setAct(null); },
@@ -1369,6 +1408,433 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
           await writeLog({ type: act.key, partnerId: x.partnerId, target: ((c.partnerById[x.partnerId] || {}).company || '') + ' · ' + x.name, reason: val.memo || '',
             result: CSTEP[act.key].label + ' · ' + [val.date, val.email, val.credits ? Number(val.credits).toLocaleString('ko-KR') + ' 크레딧' : ''].filter(Boolean).join(' · ') });
         } }) : null);
+  }
+
+  /* ───────── 견적서 (파트너 → 고객사) ─────────
+     구성과 계산은 partner-program/quote-reference.md(참고: Timely 견적 관리 시스템)를 따른다.
+     저장 위치: deals/<파트너>/quotes/<견적>. 발행본은 발행 당시 내용을 issues[]에 그대로 보관한다. */
+  var QTYPES = { router: '일반 라우터', poc: '선불 PoC', ai: 'Timely AI' };
+  var QSUBJECT = { router: 'Timely Router 이용 견적', poc: 'Timely Router 선불 PoC 이용 견적', ai: 'Timely AI 이용 견적' };
+  var QCOND = {
+    router: '본 견적은 예상 이용금액이며 실제 이용량에 따라 정산합니다. 이용 및 정산 조건은 별도 합의합니다.',
+    poc: '본 견적은 선불 PoC 이용 제안이며, 이용 및 정산 조건은 별도 합의합니다.',
+    ai: '상품 구성과 단가는 담당자 입력 기준의 제안이며, 이용 조건은 별도 합의합니다.'
+  };
+  var QDISCOUNTS = { router: ['별도 협의', '할인 없음', '5', '8', '10', '12'], poc: ['별도 협의', '할인 없음', '5', '8', '10', '12', '100'] };
+  var AI_MODES = { qty: '수량 × 단가', total: '총금액 직접 입력', period: '인원 × 월 제공량 × 개월 × 단가', periodTotal: '기간형 총금액 직접 입력' };
+  var VAT_MODES = { excl: 'VAT 10% 별도', incl: 'VAT 포함', zero: 'VAT 0%' };
+  var MAXWON = 1e12, AI_MAX_ITEMS = 30;
+  var TERMS_COMMON = [['models', '이용 모델', 'area'], ['channel', '공급경로', 'text'], ['priceTable', '별도 단가표', 'text'], ['fee', '수수료 제안', 'area']];
+  var TERMS_POC = [
+    ['balance', '잔액 처리 제안', 'select', ['미정', '종료 후 잔액 환급 제안', '합의 기간으로 잔액 이월 제안', '기간 종료 시 잔액 만료 제안']],
+    ['refund', '환급 제안', 'select', ['미정', '미사용 유상 원금 환급 제안', '환급 없이 이월 제안', '환급 없음 제안']],
+    ['extension', '기간 연장 제안', 'select', ['미정', '서면 승인 시 기간 연장 제안', '기간 연장 없음 제안']],
+    ['settle', '정산기한 및 절차 제안', 'area'],
+    ['freeAmount', '무상 이용금액 (원 상당)', 'won'],
+    ['freeKind', '무상 이용금액 구분', 'select', ['프로모션', 'SLA 보상']],
+    ['freeExpire', '무상 이용금액 만료일', 'date'],
+    ['order', '차감 순서 제안', 'select', ['미정', '무상 크레딧 우선 차감 제안', '유상 예산 우선 차감 제안']],
+    ['freeTerms', '무상 이용 조건 제안', 'area']
+  ];
+  var TERMS_END = [['etc', '기타 제안사항', 'area']];
+
+  function num(x) { var s = String(x == null ? '' : x).replace(/,/g, '').trim(); if (s === '') return NaN; var n = Number(s); return isFinite(n) ? n : NaN; }
+  function wonFull(n) { return Math.round(n).toLocaleString('ko-KR') + '원'; }
+  function plainNum(n) { return Number(n).toLocaleString('ko-KR', { maximumFractionDigits: 4 }); }
+  function localYmd(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+  function quoteNumber() {
+    var a = new Uint32Array(1); crypto.getRandomValues(a);
+    return 'TPN-' + localYmd(new Date()).replace(/-/g, '') + '-' + a[0].toString(16).toUpperCase().padStart(8, '0');
+  }
+  function newAiItem() { return { name: '', mode: 'qty', qty: '1', monthly: '1', months: '1', price: '0', unit: '식', note: '' }; }
+  function newQuote(o) {
+    var t = localYmd(new Date()), app = o.app || {}, user = o.user || {}, c = o.customer || {};
+    return {
+      number: quoteNumber(), type: o.type || 'router', customerId: c.id || null,
+      customer: { name: c.name || '', contact: '', email: '', phone: '' },
+      amount: '1,000,000', start: t, end: addDays(t, 30), sender: user.name || app.name || '',
+      platformOn: false, platformFee: '0', supportOn: false, supportFee: '0', devOn: false, devFee: '0', scope: '',
+      quoteDate: t, validUntil: addDays(t, 7), discount: '별도 협의',
+      fx: { on: false, rate: '1400', date: t, source: '서울외국환중개 매매기준율' },
+      terms: { balance: '미정', refund: '미정', extension: '미정', freeKind: '프로모션', order: '미정' },
+      ai: { discount: '0', items: [newAiItem()] },
+      settings: { supplier: app.company || '', bizno: app.bizno || '', address: app.address || '', phone: app.phone || user.phone || '', email: user.email || app.email || '', subject: '', basis: '담당자 입력 · 별도 합의', vat: 'excl', round: '1' }
+    };
+  }
+
+  function aiItemCalc(it) {
+    var qty = num(it.qty) || 0, monthly = num(it.monthly) || 0, months = num(it.months) || 0, price = num(it.price) || 0;
+    var periodic = it.mode === 'period' || it.mode === 'periodTotal', count = periodic ? qty * monthly * months : qty;
+    var raw = it.mode === 'qty' ? qty * price : it.mode === 'period' ? count * price : price;
+    var amount = Math.round(raw);
+    return { amount: amount, qty: count, price: (it.mode === 'total' || it.mode === 'periodTotal') ? (count ? amount / count : 0) : price };
+  }
+  // 품목 줄, 합계 줄, 최종 금액을 계산한다.
+  function quoteCalc(q) {
+    var rows = [], lines = [], total = 0;
+    if (q.type === 'ai') {
+      q.ai.items.forEach(function (it) { var c = aiItemCalc(it); rows.push({ name: it.name, qty: c.qty, unit: it.unit || '식', price: c.price, amount: c.amount, note: it.note }); });
+      var sub = rows.reduce(function (a, r) { return a + r.amount; }, 0), disc = Math.round(num(q.ai.discount) || 0);
+      var after = sub - disc, unit = Number(q.settings.round) || 1, floored = Math.floor(after / unit) * unit, cut = after - floored, supply, vat;
+      if (q.settings.vat === 'incl') { supply = Math.round(floored * 10 / 11); vat = floored - supply; }
+      else if (q.settings.vat === 'zero') { supply = floored; vat = 0; }
+      else { supply = floored; vat = Math.round(supply / 10); }
+      total = supply + vat;
+      if (q.settings.vat === 'incl' || disc || cut) lines.push([q.settings.vat === 'incl' ? '할인 전 금액 (VAT 포함)' : '할인 전 금액', sub]);
+      if (disc) lines.push(['할인 금액' + (sub ? ' (' + plainNum(Math.round(disc / sub * 1000) / 10) + '%)' : ''), -disc]);
+      if (cut) lines.push(['절사 금액', -cut]);
+      lines.push(['공급가액', supply], ['부가가치세', vat], ['최종 견적 금액', total]);
+      return { rows: rows, lines: lines, total: total, subtotal: sub, discount: disc, cut: cut };
+    }
+    var amount = num(q.amount) || 0, poc = q.type === 'poc';
+    rows.push({ name: poc ? '선납 PoC 이용예산' : 'Router 예상 이용금액', qty: 1, unit: '사용량', price: amount, amount: amount, note: 'VAT 별도' });
+    var fixed = 0;
+    [['platformOn', 'platformFee', 'Router 플랫폼 이용료'], ['supportOn', 'supportFee', '지원 서비스'], ['devOn', 'devFee', '개발 비용']].forEach(function (f) {
+      if (!q[f[0]]) return; var v = num(q[f[1]]) || 0; fixed += v; rows.push({ name: f[2], qty: 1, unit: '식', price: v, amount: v, note: '별도 합의' });
+    });
+    var rate = poc && /^\d+$/.test(q.discount) ? Number(q.discount) : 0, d = Math.round(amount * rate / 100);
+    var sup = amount + fixed - d, v2 = Math.round(sup / 10);
+    total = sup + v2;
+    if (poc && rate) lines.push(['공급가액 (할인 전)', amount + fixed], ['선납 할인 금액 (' + rate + '%)', -d], ['부가세 (할인 후 기준)', v2], ['최종 견적 금액', total]);
+    else lines.push(['공급가액', sup], [poc ? '부가세' : '부가가치세', v2], ['최종 견적 금액', total]);
+    return { rows: rows, lines: lines, total: total, subtotal: amount + fixed, discount: d, cut: 0 };
+  }
+  function isWon(x, min) { var n = num(x); return Number.isInteger(n) && n >= min && n <= MAXWON; }
+  function isYmd(x) { return /^\d{4}-\d{2}-\d{2}$/.test(String(x || '')); }
+  function quoteStep1Errors(q) {
+    var e = {};
+    if (!q.customer.name.trim()) e.name = '고객명을 입력해 주세요.';
+    if (q.type !== 'ai' && !isWon(q.amount, 1)) e.amount = '1원부터 1조 원까지, 원 단위로 입력해 주세요.';
+    if (!q.start) e.start = '이용 시작일을 선택해 주세요.';
+    if (!q.end) e.end = '이용 종료일을 선택해 주세요.';
+    else if (q.start && q.end < q.start) e.end = '종료일은 시작일 이후로 선택해 주세요.';
+    return e;
+  }
+  // 발행·출력 전 전체 검사. 견적서의 "입력 확인 필요"에도 같은 문구가 나온다.
+  function quoteErrors(q) {
+    var out = [], c = quoteCalc(q);
+    if (!q.customer.name.trim()) out.push('고객명을 입력해 주세요.');
+    var wons = q.type === 'ai' ? [q.ai.discount] : [q.amount].concat(q.platformOn ? [q.platformFee] : [], q.supportOn ? [q.supportFee] : [], q.devOn ? [q.devFee] : []);
+    if (q.type === 'poc' && String(q.terms.freeAmount || '').trim()) wons.push(q.terms.freeAmount);
+    if (wons.some(function (x) { return !isWon(x, 0); })) out.push('원화 금액은 0~1조 원의 정수여야 합니다.');
+    else if (c.total <= 0 || c.subtotal <= 0) out.push('이용금액은 0원보다 커야 합니다.');
+    if (q.type === 'ai') {
+      if (!q.ai.items.length) out.push('항목을 추가해 주세요.');
+      if (q.ai.items.some(function (it) { return [it.qty, it.price].concat(it.mode === 'period' || it.mode === 'periodTotal' ? [it.monthly, it.months] : []).some(function (x) { var n = num(x); return !(n >= 0) || !/^\d+(\.\d{1,4})?$/.test(String(x).replace(/,/g, '').trim()); }); })) out.push('항목의 수량과 단가는 0 이상, 소수 넷째 자리까지 입력해 주세요.');
+      if (c.rows.some(function (r) { return r.amount > MAXWON; })) out.push('항목 금액은 1조 원 이하여야 합니다.');
+      if (c.discount > c.subtotal) out.push('할인 금액은 항목 금액 합계 이내로 입력해 주세요.');
+    }
+    if (![q.start, q.end, q.quoteDate, q.validUntil].every(isYmd)) out.push('일자를 확인해 주세요.');
+    else {
+      if (q.end < q.start) out.push('종료일은 시작일 이후로 입력해 주세요.');
+      if (q.validUntil < q.quoteDate) out.push('견적 유효일을 확인해 주세요.');
+    }
+    if (q.customer.email.trim() && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(q.customer.email.trim())) out.push('이메일을 확인해 주세요.');
+    if (q.fx.on) {
+      var r = num(q.fx.rate);
+      if (!(r > 0 && r <= 100000) || !/^\d+(\.\d{1,4})?$/.test(String(q.fx.rate).replace(/,/g, '').trim())) out.push('환율은 0 초과 100,000 이하, 소수 넷째 자리까지 입력하세요.');
+      if (!isYmd(q.fx.date) || !String(q.fx.source || '').trim()) out.push('참고 환율의 기준일과 출처를 입력해 주세요.');
+    }
+    return out;
+  }
+
+  function hx(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+  function dash(s) { var t = String(s == null ? '' : s).trim(); return t ? hx(t) : '—'; }
+  // 견적서 본문 HTML. 미리보기와 저장 파일이 같은 내용을 쓴다. 발행본에는 검사 문구를 넣지 않는다.
+  function quoteDocHtml(q, issueNumber) {
+    var c = quoteCalc(q), s = q.settings, errs = issueNumber ? [] : quoteErrors(q), notes = [];
+    notes.push(QCOND[q.type], '견적 유효기간 : ' + hx(q.validUntil) + '까지');
+    errs.forEach(function (x) { notes.push('입력 확인 필요 : ' + hx(x)); });
+    if (q.type !== 'ai') {
+      if ((q.platformOn || q.supportOn || q.devOn) && q.scope.trim()) notes.push('선택 서비스 범위 : ' + hx(q.scope.trim()));
+      if (/^\d+$/.test(q.discount)) notes.push(q.type === 'poc' ? '선납 공급가액 할인율 : ' + q.discount + '% (별도 서비스비에는 적용하지 않습니다.)' : '사용단가 할인율 : ' + q.discount + '% (실제 적격 사용료 정산 때 적용하며 견적금액에서 빼지 않습니다.)');
+      TERMS_COMMON.concat(q.type === 'poc' ? TERMS_POC : [], TERMS_END).forEach(function (t) {
+        var v = String(q.terms[t[0]] == null ? '' : q.terms[t[0]]).trim();
+        if (!v || v === '미정') return;
+        if (t[0] === 'freeKind' || t[0] === 'freeExpire') { if (!String(q.terms.freeAmount || '').trim()) return; }
+        notes.push(hx(t[1].replace(' (원 상당)', '')) + ' : ' + (t[2] === 'won' ? wonFull(num(v) || 0) + ' 상당' : hx(v)));
+      });
+      if (q.fx.on) notes.push('참고 환율 : ' + hx(q.fx.rate) + '원/USD (' + hx(q.fx.date) + ', ' + hx(q.fx.source) + '). 추정용이며 고정환율 또는 사용량 보장이 아닙니다.');
+    } else {
+      notes.push('가격 근거 : ' + hx(s.basis), '계산 순서 : 항목 금액 원 단위 반올림 → 할인금액 차감 → 절사 → VAT 계산. 기간 계산은 기간형 계산에서만 적용.');
+      if (c.discount || c.cut) notes.push('할인 ' + wonFull(c.discount) + ' / 절사 ' + wonFull(c.cut));
+      if (String(q.terms.etc || '').trim()) notes.push('기타 제안사항 : ' + hx(q.terms.etc.trim()));
+    }
+    function line(l, i, arr) { return '<div class="qline' + (i === arr.length - 1 ? ' strong' : '') + '"><span>' + hx(l[0]) + '</span><span>' + (l[1] < 0 ? '−' : '') + wonFull(Math.abs(l[1])) + '</span></div>'; }
+    return '<div class="qsup"><b>' + dash(s.supplier) + '</b><div>사업자등록번호 : ' + dash(s.bizno) + '</div><div>주소 : ' + dash(s.address) + '</div><div>TEL : ' + dash(s.phone) + '</div></div>' +
+      '<h1>견 적 서</h1>' +
+      '<table class="qinfo"><tbody>' +
+      '<tr><th>건 명</th><td colspan="3">' + hx(s.subject.trim() || QSUBJECT[q.type]) + '</td></tr>' +
+      '<tr><th>견적일</th><td>' + dash(q.quoteDate) + '</td><th>견적번호</th><td>' + hx(issueNumber || q.number) + '</td></tr>' +
+      '<tr><th>수 신</th><td>' + (q.customer.name.trim() ? hx(q.customer.name.trim()) : '고객명') + '</td><th>담당자</th><td>' + dash(q.customer.contact) + '</td></tr>' +
+      '<tr><th>연락처</th><td>' + dash(q.customer.phone) + '</td><th>E-mail</th><td>' + dash(q.customer.email) + '</td></tr>' +
+      '<tr><th>발 신</th><td>' + dash(s.supplier) + '</td><th>담당자</th><td>' + dash(q.sender) + '</td></tr>' +
+      '<tr><th>연락처</th><td>' + dash(s.phone) + '</td><th>E-mail</th><td>' + dash(s.email) + '</td></tr>' +
+      '<tr><th>이용기간</th><td colspan="3">' + dash(q.start) + ' ~ ' + dash(q.end) + '</td></tr></tbody></table>' +
+      '<h2>1. 견적 세부내용</h2>' +
+      '<table class="qitems"><thead><tr><th style="width:6%">품번</th><th style="width:27%">품명</th><th style="width:9%">수량</th><th style="width:8%">단위</th><th style="width:17%">단가 (원)</th><th style="width:18%">금액 (원)</th><th style="width:15%">비고</th></tr></thead><tbody>' +
+      c.rows.map(function (r, i) { return '<tr><td class="c">' + (i + 1) + '</td><td>' + dash(r.name) + '</td><td class="r">' + plainNum(r.qty) + '</td><td class="c">' + hx(r.unit) + '</td><td class="r">' + plainNum(r.price) + '</td><td class="r">' + plainNum(r.amount) + '</td><td>' + hx(r.note || '') + '</td></tr>'; }).join('') +
+      '</tbody></table><div class="qlines">' + c.lines.map(line).join('') + '</div>' +
+      '<div class="qnotes"><b>기타사항</b>' + notes.map(function (n) { return '<div>▷ ' + n + '</div>'; }).join('') + '</div>' +
+      '<h2>2. 견적 금액</h2><div class="qsum">' + c.lines.map(function (l, i, arr) { return '<div' + (i === arr.length - 1 ? ' class="strong"' : '') + '>' + hx(l[0]) + ' : ' + (l[1] < 0 ? '−' : '') + wonFull(Math.abs(l[1])) + '</div>'; }).join('') +
+      '<p>본 견적은 계약 체결 또는 발송 완료를 의미하지 않습니다.</p></div>';
+  }
+  var QDOC_CSS = '.qpaper{background:#fff;color:#16181a;font-family:Pretendard,-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;font-size:12px;line-height:1.55;letter-spacing:-.2px;padding:40px 44px;word-break:keep-all}' +
+    '.qpaper h1{font-size:22px;text-align:center;margin:8px 0 18px;letter-spacing:6px}.qpaper h2{font-size:13px;margin:20px 0 8px}' +
+    '.qpaper .qsup{margin-left:auto;width:max-content;max-width:60%;border:1px solid #9aa0a6;padding:8px 12px;font-size:11px}.qpaper .qsup b{font-size:13px}' +
+    '.qpaper table{width:100%;border-collapse:collapse;table-layout:fixed}.qpaper th,.qpaper td{border:1px solid #9aa0a6;padding:6px 8px;text-align:left;vertical-align:top;overflow-wrap:anywhere}' +
+    '.qpaper th,.qpaper td{font-size:12px;line-height:1.5;color:#16181a}.qpaper .qitems th{white-space:nowrap;padding-left:2px;padding-right:2px}' +
+    '.qpaper th{background:#f1f3f5;font-weight:600}.qpaper .qinfo th{width:14%}.qpaper .qinfo td{width:36%}.qpaper .qitems th{text-align:center}.qpaper td.r{text-align:right;font-variant-numeric:tabular-nums}.qpaper td.c{text-align:center}' +
+    '.qpaper .qlines{margin:8px 0 0 auto;width:60%}.qpaper .qline{display:flex;justify-content:space-between;gap:16px;padding:3px 0;font-variant-numeric:tabular-nums}.qpaper .strong{font-weight:700}' +
+    '.qpaper .qline.strong{border-top:1px solid #16181a;margin-top:3px;padding-top:6px}.qpaper .qnotes{border:1px solid #9aa0a6;padding:10px 12px;margin-top:14px}.qpaper .qnotes div{margin-top:3px}' +
+    '.qpaper .qsum{border:1px solid #9aa0a6;padding:14px;text-align:center;font-variant-numeric:tabular-nums}.qpaper .qsum .strong{font-size:15px;margin-top:4px}.qpaper .qsum p{margin:10px 0 0;color:#4d5053;font-size:11px}';
+  function quoteFileHtml(q, issueNumber) {
+    return '<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>견적서 ' + hx(issueNumber || q.number) + '</title><style>' +
+      '@page{size:A4;margin:12mm}body{margin:0;background:#e9ebee}.qpaper{max-width:794px;margin:24px auto;box-shadow:0 1px 6px rgba(0,0,0,.15)}.hint{max-width:794px;margin:16px auto 0;font:13px sans-serif;color:#4d5053}' +
+      '@media print{body{background:#fff}.qpaper{margin:0;max-width:none;box-shadow:none;padding:0}.hint{display:none}}' + QDOC_CSS +
+      '</style></head><body><p class="hint">인쇄(Ctrl/Cmd + P)에서 대상을 "PDF로 저장"으로 고르면 PDF 파일로 만들 수 있어요.</p><div class="qpaper">' + quoteDocHtml(q, issueNumber) + '</div></body></html>';
+  }
+  (function () { var st = document.createElement('style'); st.textContent = QDOC_CSS; document.head.appendChild(st); })();
+  function QuotePaper(props) {
+    var html = quoteDocHtml(props.q, props.issueNumber);
+    return h('div', { className: 'qpaper-scroll' }, h('div', { className: 'qpaper', dangerouslySetInnerHTML: { __html: html } }));
+  }
+  async function saveQuoteFile(q, issueNumber) {
+    var dl = null;
+    try { dl = window.claude && window.claude.use ? await window.claude.use('downloads') : null; } catch (e) {}
+    if (!dl) return { kind: 'danger', text: '이 화면에서는 파일을 저장할 수 없어요.' };
+    try { await dl.save({ filename: '견적서-' + (issueNumber || q.number) + '.html', data: quoteFileHtml(q, issueNumber) }); return { kind: 'ok', text: '견적서 파일을 저장했어요. 브라우저로 열어 인쇄하면 PDF로 만들 수 있어요.' }; }
+    catch (e) { return e && e.code === 'declined' ? null : { kind: 'danger', text: '파일을 저장하지 못했어요. 잠시 후 다시 시도해 주세요.' }; }
+  }
+
+  function QSel(props) {
+    var o = Array.isArray(props.options) ? props.options.map(function (x) { return [x, x]; }) : Object.keys(props.options).map(function (k) { return [k, props.options[k]]; });
+    return h('select', { id: props.id, className: 'native', value: props.value, 'aria-label': props.label, onChange: function (e) { props.onValue(e.target.value); } }, o.map(function (x) { return h('option', { key: x[0], value: x[0] }, x[1]); }));
+  }
+  function QDate(props) { return h('input', { id: props.id, className: 'native', type: 'date', value: props.value || '', onChange: function (e) { props.onValue(e.target.value); } }); }
+  function QWon(props) { return h(T.TextInput, { id: props.id, inputType: 'number', thousandSeparator: ',', wrapperClassName: 'w-full', value: props.value == null ? '' : props.value, error: props.error, onChange: function (e) { props.onValue(e.target.value); } }); }
+  function QDec(props) { return h(Input, { id: props.id, inputMode: 'decimal', value: props.value, onValue: function (v) { props.onValue(v.replace(/[^0-9.]/g, '')); } }); }
+  function QArea(props) { return h('textarea', { id: props.id, className: 'textarea', style: { minHeight: 72 }, maxLength: 2000, value: props.value || '', onChange: function (e) { props.onValue(e.target.value); } }); }
+  function QCheck(props) { return h(T.Checkbox, { checked: !!props.value, onChange: props.onValue, suffix: h('span', { className: 'body-md-regular' }, props.label) }); }
+
+  function QuoteBuilder(props) {
+    var init = props.init;
+    var s = useState(init.quote), q = s[0], setQ = s[1];
+    var st = useState(1), step = st[0], setStep = st[1];
+    var meta = useState({ id: init.id || null, rev: init.rev || 0, issues: init.issues || [], createdAt: init.createdAt || null }), m = meta[0], setM = meta[1];
+    var e1 = useState({}), errs1 = e1[0], setErrs1 = e1[1];
+    var ms = useState(null), msg = ms[0], setMsg = ms[1];
+    var so = useState(false), settingsOpen = so[0], setSettingsOpen = so[1];
+    var draftAsk = useAsk(), issueAsk = useAsk();
+    var calc = quoteCalc(q), errors = quoteErrors(q);
+    function set(k) { return function (v) { var n = Object.assign({}, q); n[k] = v; setQ(n); }; }
+    function setIn(group, k) { return function (v) { var n = Object.assign({}, q), g = Object.assign({}, q[group]); g[k] = v; n[group] = g; setQ(n); }; }
+    function setItem(i, k) { return function (v) { var items = q.ai.items.map(function (it, j) { if (j !== i) return it; var o = Object.assign({}, it); o[k] = v; return o; }); setIn('ai', 'items')(items); }; }
+    function goStep(n) {
+      if (n > 1) { var e = quoteStep1Errors(q); setErrs1(e); if (Object.keys(e).length) { setStep(1); return; } }
+      setMsg(null); setStep(n); window.scrollTo(0, 0);
+    }
+    function setType(v) {
+      var n = Object.assign({}, q, { type: v });
+      if (QDISCOUNTS[v] && QDISCOUNTS[v].indexOf(n.discount) < 0) n.discount = '별도 협의';
+      setQ(n);
+    }
+    async function persist(issue) {
+      var now = new Date().toISOString(), id = m.id || newId('q'), issues = m.issues.slice(), made = null;
+      if (issue) { made = { number: quoteNumber(), at: now, v: issues.length + 1, total: calc.total, snapshot: JSON.parse(JSON.stringify(q)) }; issues.push(made); }
+      var body = { quote: q, number: q.number, type: q.type, customerId: q.customerId || null, customerName: q.customer.name.trim(), total: calc.total,
+        status: issues.length ? 'issued' : 'draft', rev: m.rev + 1, issues: issues, createdAt: m.createdAt || now, updatedAt: now };
+      if (init.copiedFrom) body.copiedFrom = init.copiedFrom;
+      await platform.db.doc('deals/' + props.uid + '/quotes/' + id).set(body);
+      setM({ id: id, rev: body.rev, issues: issues, createdAt: body.createdAt });
+      return { id: id, body: body, issue: made };
+    }
+    function askDraft() { if (!q.customer.name.trim()) { setMsg({ kind: 'danger', text: '고객명을 입력해 주세요.' }); return; } setMsg(null); draftAsk.show(); }
+    function askIssue() { if (errors.length) { setMsg({ kind: 'danger', text: '입력을 확인해 주세요: ' + errors[0] }); return; } setMsg(null); issueAsk.show(); }
+    async function onFile() { if (errors.length) { setMsg({ kind: 'danger', text: '입력을 확인해 주세요: ' + errors[0] }); return; } var r = await saveQuoteFile(q); if (r) setMsg(r); }
+
+    function fld(label, node, o) { o = o || {}; return h(Field, { key: o.key || label, label: label, required: o.required, error: !!o.error, help: o.error || o.help, full: o.full }, node); }
+    function termField(t) {
+      var id = 'q-t-' + t[0], v = q.terms[t[0]], on = setIn('terms', t[0]);
+      var node = t[2] === 'area' ? h(QArea, { id: id, value: v, onValue: on }) : t[2] === 'select' ? h(QSel, { id: id, label: t[1], options: t[3], value: v || t[3][0], onValue: on })
+        : t[2] === 'won' ? h(QWon, { id: id, value: v, onValue: on }) : t[2] === 'date' ? h(QDate, { id: id, value: v, onValue: on }) : h(Input, { id: id, value: v, onValue: on, maxLength: 2000 });
+      return fld(t[1], node, { key: t[0] });
+    }
+
+    var body;
+    if (step === 1) {
+      body = h(F, null,
+        h('div', { className: 'stack-s' }, P('head-sm-bold', '기본 정보를 입력해 주세요'), P('body-md-regular muted', '고객명, 금액, 기간을 입력한 뒤 다음을 눌러 주세요.')),
+        fld('견적 유형', h(QSel, { id: 'q-type', label: '견적 유형', options: QTYPES, value: q.type, onValue: setType }), { required: true }),
+        fld('고객명', h(Input, { id: 'q-name', value: q.customer.name, onValue: setIn('customer', 'name'), placeholder: '예: 가상기업 주식회사', maxLength: 2000, error: !!errs1.name }), { required: true, error: errs1.name }),
+        fld('고객 담당자', h(Input, { id: 'q-contact', value: q.customer.contact, onValue: setIn('customer', 'contact'), maxLength: 2000 })),
+        fld('고객 이메일', h(Input, { id: 'q-email', type: 'email', value: q.customer.email, onValue: setIn('customer', 'email') })),
+        fld('고객 담당자 전화번호', h(Input, { id: 'q-phone', type: 'tel', value: q.customer.phone, onValue: setIn('customer', 'phone') })),
+        q.type === 'ai' ? null : fld(q.type === 'poc' ? '선납 이용금액 (VAT 별도)' : '예상 이용금액 (VAT 별도)', h(QWon, { id: 'q-amount', value: q.amount, onValue: set('amount'), error: !!errs1.amount }), { required: true, error: errs1.amount }),
+        h('div', { className: 'form-grid' },
+          fld('이용 시작일', h(QDate, { id: 'q-start', value: q.start, onValue: set('start') }), { required: true, error: errs1.start }),
+          fld('이용 종료일', h(QDate, { id: 'q-end', value: q.end, onValue: set('end') }), { required: true, error: errs1.end })));
+    } else if (step === 2) {
+      var svc = q.platformOn || q.supportOn || q.devOn;
+      body = h(F, null,
+        h('div', { className: 'stack-s' }, P('head-sm-bold', '필요한 옵션만 추가하세요'), P('body-md-regular muted', '추가할 내용이 없으면 바로 견적 확인으로 이동하세요.')),
+        fld('발신 담당자', h(Input, { id: 'q-sender', value: q.sender, onValue: set('sender'), maxLength: 2000 })),
+        q.type === 'ai' ? null : h(F, null,
+          h(QCheck, { label: '플랫폼 이용료 포함', value: q.platformOn, onValue: set('platformOn') }),
+          q.platformOn ? fld('플랫폼 이용료 (원)', h(QWon, { id: 'q-platform', value: q.platformFee, onValue: set('platformFee') })) : null,
+          h(QCheck, { label: '지원 서비스 포함', value: q.supportOn, onValue: set('supportOn') }),
+          q.supportOn ? fld('지원 서비스 비용 (원)', h(QWon, { id: 'q-support', value: q.supportFee, onValue: set('supportFee') })) : null,
+          h(QCheck, { label: '개발 비용 포함', value: q.devOn, onValue: set('devOn') }),
+          q.devOn ? fld('개발 비용 (원)', h(QWon, { id: 'q-dev', value: q.devFee, onValue: set('devFee') })) : null,
+          svc ? fld('서비스 범위 및 기간', h(QArea, { id: 'q-scope', value: q.scope, onValue: set('scope') })) : null,
+          P('body-sm-regular muted', q.type === 'poc' ? '할인율은 선납 공급가액에 적용됩니다. 별도 서비스비는 할인하지 않으며 VAT는 할인 후 금액으로 계산합니다.' : '할인 유형: 사용단가 할인. 실제 적격 사용료 정산 때 적용하며, 입력한 견적금액이나 선납 예산에서 할인액을 빼지 않습니다.')),
+        h('details', { className: 'qfold', open: q.type === 'ai' ? true : undefined },
+          h('summary', { className: 'body-md-bold' }, '문서 정보 · 할인 · 세부 조건'),
+          h('div', { className: 'stack', style: { marginTop: 16 } },
+            fld('견적번호', h(Input, { id: 'q-number', value: q.number, onValue: set('number'), maxLength: 60 })),
+            h('div', { className: 'form-grid' },
+              fld('견적일', h(QDate, { id: 'q-date', value: q.quoteDate, onValue: set('quoteDate') })),
+              fld('견적 유효일', h(QDate, { id: 'q-valid', value: q.validUntil, onValue: set('validUntil') }))),
+            q.type === 'ai' ? h(F, null,
+              P('body-sm-regular muted', '단가는 직접 확인해 입력하세요.'),
+              fld('견적금액 할인 (원)', h(QWon, { id: 'q-aidisc', value: q.ai.discount, onValue: setIn('ai', 'discount') }), { help: '입력한 할인액을 견적금액에서 차감합니다. 할인율은 할인 전 금액 대비로 표시합니다.' }),
+              q.ai.items.map(function (it, i) {
+                var n = i + 1, periodic = it.mode === 'period' || it.mode === 'periodTotal', totalMode = it.mode === 'total' || it.mode === 'periodTotal';
+                return h('div', { key: i, className: 'qitem stack' },
+                  h('div', { className: 'between' }, P('body-md-bold', '항목 ' + n + ' · ' + wonFull(aiItemCalc(it).amount)),
+                    q.ai.items.length > 1 ? h(T.Button, { type: 'button', size: 'small', variant: 'dangerGhostFilled', onClick: function () { setIn('ai', 'items')(q.ai.items.filter(function (_, j) { return j !== i; })); } }, '항목 삭제') : null),
+                  fld('품명 ' + n, h(Input, { id: 'q-i-name-' + i, value: it.name, onValue: setItem(i, 'name'), maxLength: 2000 })),
+                  fld('계산 방식 ' + n, h(QSel, { id: 'q-i-mode-' + i, label: '계산 방식 ' + n, options: AI_MODES, value: it.mode, onValue: setItem(i, 'mode') })),
+                  h('div', { className: 'form-grid' },
+                    fld('수량 / 인원 ' + n, h(QDec, { id: 'q-i-qty-' + i, value: it.qty, onValue: setItem(i, 'qty') })),
+                    fld('단위 ' + n, h(Input, { id: 'q-i-unit-' + i, value: it.unit, onValue: setItem(i, 'unit'), maxLength: 20 })),
+                    periodic ? fld('1인 월 제공량 ' + n, h(QDec, { id: 'q-i-monthly-' + i, value: it.monthly, onValue: setItem(i, 'monthly') })) : null,
+                    periodic ? fld('개월 ' + n, h(QDec, { id: 'q-i-months-' + i, value: it.months, onValue: setItem(i, 'months') })) : null),
+                  fld((totalMode ? '총금액 ' : '입력 단가 ') + n, h(QDec, { id: 'q-i-price-' + i, value: it.price, onValue: setItem(i, 'price') })),
+                  fld('비고 ' + n, h(Input, { id: 'q-i-note-' + i, value: it.note, onValue: setItem(i, 'note'), maxLength: 2000 })));
+              }),
+              q.ai.items.length < AI_MAX_ITEMS ? h('div', null, h(T.Button, { type: 'button', size: 'small', variant: 'grayScaleOutline', prefixIcon: 'Icon16pxIcPlus', onClick: function () { setIn('ai', 'items')(q.ai.items.concat([newAiItem()])); } }, '항목 추가')) : null,
+              termField(TERMS_END[0]))
+            : h(F, null,
+              fld(q.type === 'poc' ? '선납 공급가액 할인율 (%)' : '사용단가 할인율 (%)', h(QSel, { id: 'q-discount', label: '할인율', options: QDISCOUNTS[q.type], value: q.discount, onValue: set('discount') })),
+              h(QCheck, { label: '참고 환율을 견적서에 표시', value: q.fx.on, onValue: setIn('fx', 'on') }),
+              q.fx.on ? h(F, null,
+                fld('참고 환율 (원 / USD)', h(QDec, { id: 'q-fx-rate', value: q.fx.rate, onValue: setIn('fx', 'rate') })),
+                fld('환율 기준일', h(QDate, { id: 'q-fx-date', value: q.fx.date, onValue: setIn('fx', 'date') })),
+                fld('환율 출처', h(Input, { id: 'q-fx-src', value: q.fx.source, onValue: setIn('fx', 'source'), maxLength: 2000 }))) : null,
+              TERMS_COMMON.concat(q.type === 'poc' ? TERMS_POC : [], TERMS_END).map(termField)))));
+    } else {
+      body = h(F, null,
+        h('div', { className: 'stack-s' }, P('head-sm-bold', '견적서를 확인해 주세요'), P('body-md-regular muted', '내용을 확인한 뒤 초안으로 저장하거나 발행본으로 저장하세요.')),
+        h('div', { className: 'box tight stack-s' }, P('body-md-bold', (q.customer.name.trim() || '고객명') + ' · ' + QTYPES[q.type]), P('body-md-regular muted num', q.start + ' ~ ' + q.end),
+          h('div', { className: 'row' }, h(T.Button, { type: 'button', size: 'small', variant: 'grayScaleOutline', onClick: function () { setStep(1); } }, '기본 정보 수정'), h(T.Button, { type: 'button', size: 'small', variant: 'grayScaleOutline', onClick: function () { setStep(2); } }, '추가 옵션 수정'))),
+        errors.length ? h(Notice, { kind: 'warn', title: '입력 확인 필요' }, h('ul', { className: 'tier-list' }, errors.map(function (x) { return h('li', { key: x }, x); }))) : null,
+        m.issues.length ? P('body-sm-regular muted', '발행본 ' + m.issues.length + '건 · 최근 ' + m.issues[m.issues.length - 1].number) : null);
+    }
+    var steps = ['기본 정보', '추가 옵션', '견적 확인'];
+    return h('div', { className: 'wrap section stack', style: { gap: 20, maxWidth: 1280 } },
+      draftAsk.open ? h(ConfirmModal, { title: '초안으로 저장할까요?', subTitle: q.number, items: [['고객명', q.customer.name.trim()], ['유형', QTYPES[q.type]], ['총 견적금액', wonFull(calc.total) + ' (VAT 포함)']],
+        note: '초안은 나중에 다시 열어 고칠 수 있어요.', confirmLabel: '저장하기', busy: draftAsk.busy, onCancel: draftAsk.hide,
+        onConfirm: function () { draftAsk.run(async function () { try { var r = await persist(false); setMsg({ kind: 'ok', text: '초안을 저장했어요. 수정 버전 ' + r.body.rev }); } catch (err) { setMsg({ kind: 'danger', text: errText(err) }); } }); } }) : null,
+      issueAsk.open ? h(ConfirmModal, { title: '발행본으로 저장할까요?', subTitle: q.customer.name.trim() + ' · ' + QTYPES[q.type], items: [['총 견적금액', wonFull(calc.total) + ' (VAT 포함)'], ['이용기간', q.start + ' ~ ' + q.end], ['견적 유효일', q.validUntil]],
+        note: '발행본은 새 견적번호로 저장되고 고칠 수 없어요. 고객사에 보내는 일은 따로 하셔야 해요.', confirmLabel: '발행본 저장', busy: issueAsk.busy, onCancel: issueAsk.hide,
+        onConfirm: function () { issueAsk.run(async function () { try { var r = await persist(true); props.onIssued(Object.assign({ id: r.id }, r.body), r.issue); } catch (err) { setMsg({ kind: 'danger', text: errText(err) }); } }); } }) : null,
+      settingsOpen ? h(QuoteSettings, { q: q, onChange: function (sv) { set('settings')(sv); }, onClose: function () { setSettingsOpen(false); } }) : null,
+      h('div', { className: 'between' },
+        h('div', { className: 'stack-s', style: { gap: 2 } }, P('head-md-bold title', '견적서 작성'), P('body-md-regular muted num', q.number + (m.rev ? ' · 수정 버전 ' + m.rev : ' · 저장 전'))),
+        h('div', { className: 'row' }, h(T.Button, { type: 'button', variant: 'grayScaleOutline', size: 'small', onClick: function () { setSettingsOpen(true); } }, '견적서 설정'), h(T.Button, { type: 'button', variant: 'grayScaleOutline', size: 'small', onClick: props.onExit }, '견적 내역으로'))),
+      h('div', { className: 'qb' },
+        h('div', { className: 'stack', style: { minWidth: 0 } },
+          h('div', { className: 'tabs-line' }, h(T.Tabs, { tabs: steps.map(function (x, i) { return (i + 1) + ' ' + x; }), value: step + ' ' + steps[step - 1], onChange: function (t) { goStep(Number(t[0])); } })),
+          h('div', { className: 'box stack' }, body),
+          P('body-sm-regular muted', '자동 저장하지 않아요. 초안 저장 또는 발행본 저장을 눌러야 보관돼요.'),
+          msg ? h(Notice, { kind: msg.kind }, msg.text) : null,
+          h('div', { className: 'box tight stack' },
+            h('div', { className: 'between' }, P('body-md-medium muted', '총 견적금액 (VAT 포함)'), h('p', { className: 'head-sm-bold num', id: 'q-total' }, wonFull(calc.total))),
+            h('div', { className: 'row' },
+              step > 1 ? h(T.Button, { type: 'button', variant: 'grayScaleOutline', onClick: function () { setStep(step - 1); } }, '이전') : null,
+              step === 1 ? h(T.Button, { type: 'button', variant: 'primaryFilled', onClick: function () { goStep(2); } }, '다음 · 추가 옵션') : null,
+              step === 2 ? h(T.Button, { type: 'button', variant: 'primaryFilled', onClick: function () { goStep(3); } }, '다음 · 견적 확인') : null,
+              step === 3 ? h(T.Button, { type: 'button', variant: 'grayScaleOutline', onClick: askDraft }, '초안 저장') : null,
+              step === 3 ? h(T.Button, { type: 'button', variant: 'primaryFilled', onClick: askIssue }, '발행본 저장') : null,
+              step === 3 ? h(T.Button, { type: 'button', variant: 'grayScaleOutline', onClick: onFile }, '견적서 파일 저장') : null))),
+        h('div', { className: 'stack-s', style: { minWidth: 0 } }, P('body-sm-medium muted', '견적서 미리보기 · A4'), h(QuotePaper, { q: q }))));
+  }
+
+  function QuoteSettings(props) {
+    var q = props.q, sv = q.settings;
+    function set(k) { return function (v) { var n = Object.assign({}, sv); n[k] = v; props.onChange(n); }; }
+    function fld(label, node, help) { return h(Field, { label: label, help: help }, node); }
+    return h(T.Modal, { open: true, title: '견적서 설정', subTitle: '이 견적에만 적용되고 미리보기에 바로 반영돼요.', size: 'lg', headerClose: true, onClose: props.onClose },
+      h('div', { className: 'stack', style: { maxHeight: '60vh', overflowY: 'auto', paddingRight: 4 } },
+        q.type === 'ai' ? h(F, null, P('head-sm-bold', 'AI 가격 · 단위 설정'),
+          fld('가격 근거 / 출처', h(Input, { id: 'qs-basis', value: sv.basis, onValue: set('basis'), maxLength: 2000 })),
+          h('div', { className: 'form-grid' },
+            fld('VAT 기준', h(QSel, { id: 'qs-vat', label: 'VAT 기준', options: VAT_MODES, value: sv.vat, onValue: set('vat') }), 'VAT 기준을 바꾸어도 입력 단가는 그대로 유지됩니다.'),
+            fld('절사 단위', h(QSel, { id: 'qs-round', label: '절사 단위', options: ['1', '10', '100', '1000', '10000'], value: sv.round, onValue: set('round') })))) : null,
+        P('head-sm-bold', '공급자 · 공통 문서'),
+        h('div', { className: 'form-grid' },
+          fld('공급자명', h(Input, { id: 'qs-supplier', value: sv.supplier, onValue: set('supplier'), maxLength: 2000 })),
+          fld('사업자등록번호', h(Input, { id: 'qs-bizno', value: sv.bizno, onValue: set('bizno'), maxLength: 40 })),
+          h('div', { className: 'full' }, fld('공급자 주소', h(Input, { id: 'qs-address', value: sv.address, onValue: set('address'), maxLength: 2000 }))),
+          fld('공급자 전화', h(Input, { id: 'qs-phone', value: sv.phone, onValue: set('phone'), maxLength: 40 })),
+          fld('발신 이메일', h(Input, { id: 'qs-email', type: 'email', value: sv.email, onValue: set('email') })),
+          h('div', { className: 'full' }, fld('건명', h(Input, { id: 'qs-subject', value: sv.subject, onValue: set('subject'), placeholder: QSUBJECT[q.type], maxLength: 2000 }), '비워 두면 "' + QSUBJECT[q.type] + '"을 써요.')))),
+      h('div', { slot: 'buttons' }, h(T.Button, { variant: 'primaryFilled', onClick: props.onClose }, '완료')));
+  }
+
+  function IssuedQuote(props) {
+    var doc = props.doc, issue = props.issue;
+    var ms = useState(props.fresh ? { kind: 'ok', text: '발행본을 저장했어요. 파일 저장과 고객사 발송은 따로 하셔야 해요.' } : null), msg = ms[0], setMsg = ms[1];
+    return h('div', { className: 'wrap section stack', style: { gap: 20, maxWidth: 920 } },
+      h('div', { className: 'between' },
+        h('div', { className: 'stack-s', style: { gap: 2 } }, P('head-md-bold title', '저장된 발행본'), P('body-md-regular muted num', issue.number + ' · v' + issue.v + ' · ' + shortDate(issue.at) + ' 발행')),
+        h('div', { className: 'row' },
+          h(T.Button, { type: 'button', variant: 'grayScaleOutline', size: 'small', onClick: props.onExit }, '견적 내역으로'),
+          h(T.Button, { type: 'button', variant: 'grayScaleOutline', size: 'small', onClick: function () { props.onCopy(doc, issue); } }, '복사하여 새 견적'),
+          h(T.Button, { type: 'button', variant: 'primaryFilled', size: 'small', onClick: async function () { var r = await saveQuoteFile(issue.snapshot, issue.number); if (r) setMsg(r); } }, '견적서 파일 저장'))),
+      msg ? h(Notice, { kind: msg.kind }, msg.text) : null,
+      h(QuotePaper, { q: issue.snapshot, issueNumber: issue.number }));
+  }
+
+  function PortalQuotes(props) {
+    var f = useState({ query: props.initialQuery || '', type: '', status: '' }), flt = f[0], setFlt = f[1];
+    var o = useState(null), open = o[0], setOpen = o[1];
+    useEffect(function () { if (props.initialQuery != null) setFlt({ query: props.initialQuery, type: '', status: '' }); }, [props.initialQuery]);
+    function set(k) { return function (v) { var n = Object.assign({}, flt); n[k] = v; setFlt(n); }; }
+    var rows = props.quotes.filter(function (d) {
+      if (flt.type && d.type !== flt.type) return false;
+      if (flt.status && d.status !== flt.status) return false;
+      var hay = (d.customerName + ' ' + d.number + ' ' + (d.issues || []).map(function (i) { return i.number; }).join(' ')).toLowerCase();
+      return !flt.query.trim() || hay.indexOf(flt.query.trim().toLowerCase()) >= 0;
+    });
+    var cur = open ? props.quotes.filter(function (d) { return d.id === open; })[0] : null;
+    return h(F, null,
+      h('div', { className: 'between' }, P('body-md-regular muted', '고객사에 줄 견적서를 만들고 발행본을 보관해요. 파일 저장은 고객사 발송을 뜻하지 않아요.'),
+        h(T.Button, { variant: 'primaryFilled', size: 'small', prefixIcon: 'Icon16pxIcPlusWhite', onClick: function () { props.onNew(null); } }, '새 견적')),
+      h('div', { className: 'qfilters' },
+        h(T.TextInput, { id: 'ql-query', placeholder: '고객명 또는 견적번호', suffixIcon: 'Icon16pxIcSearch', wrapperClassName: 'w-full', value: flt.query, onChange: function (e) { set('query')(e.target.value); } }),
+        h(QSel, { id: 'ql-type', label: '유형', options: Object.assign({ '': '전체 유형' }, QTYPES), value: flt.type, onValue: set('type') }),
+        h(QSel, { id: 'ql-status', label: '상태', options: { '': '전체 상태', draft: '작성 중', issued: '발행본 저장' }, value: flt.status, onValue: set('status') })),
+      h(DataTable, { cols: ['고객명', '견적번호', '유형', '상태', '작성일', '수정일', '금액', '조회'],
+        empty: props.quotes.length ? '조건에 맞는 견적이 없어요. 검색 조건을 바꿔 보세요.' : '저장된 견적이 없어요. 새 견적을 작성해 보세요.',
+        rows: rows.map(function (d) {
+          return h('tr', { key: d.id }, h(T.TD, null, h('span', { className: 'body-md-bold' }, d.customerName || '-')), h(T.TD, null, h('span', { className: 'num' }, d.number)), h(T.TD, null, QTYPES[d.type]),
+            h(T.TD, null, h(T.Badge, { theme: d.status === 'issued' ? 'green' : 'gray' }, d.status === 'issued' ? '발행본 저장' : '작성 중')),
+            h(T.TD, null, h('span', { className: 'num' }, shortDate(d.createdAt))), h(T.TD, null, h('span', { className: 'num' }, shortDate(d.updatedAt))),
+            h(T.TD, null, h('span', { className: 'num' }, wonFull(d.total || 0))), h(T.TD, null, h(T.Button, { size: 'small', variant: 'grayScaleOutline', onClick: function () { setOpen(d.id); } }, '열기')));
+        }) }),
+      cur ? h(T.Modal, { open: true, title: (cur.customerName || '고객명 없음') + ' · ' + cur.number, subTitle: '수정 버전 ' + cur.rev + ' / ' + String(cur.updatedAt).slice(0, 16).replace('T', ' '), size: 'md', headerClose: true, onClose: function () { setOpen(null); } },
+        h('div', { className: 'stack' },
+          h('div', null, h(T.Button, { variant: 'primaryFilled', size: 'small', onClick: function () { setOpen(null); props.onEdit(cur); } }, '초안 열기')),
+          cur.copiedFrom ? P('body-sm-regular muted num', '원본 발행본 ' + cur.copiedFrom) : null,
+          P('body-md-bold', '발행본'),
+          (cur.issues || []).length ? (cur.issues || []).slice().reverse().map(function (i) {
+            return h('div', { key: i.number, className: 'between body-md-regular' }, h('span', { className: 'num' }, i.number + ' · ' + shortDate(i.at) + ' · v' + i.v),
+              h('div', { className: 'row' }, h(T.Button, { size: 'small', variant: 'grayScaleOutline', onClick: function () { setOpen(null); props.onView(cur, i); } }, '발행본 조회'),
+                h(T.Button, { size: 'small', variant: 'grayScaleOutline', onClick: function () { setOpen(null); props.onCopy(cur, i); } }, '복사하여 새 견적')));
+          }) : P('body-md-regular muted', '아직 발행본이 없어요.')),
+        h('div', { slot: 'buttons' }, h(T.Button, { variant: 'grayScaleFilled', onClick: function () { setOpen(null); } }, '닫기'))) : null);
   }
 
   /* ───────── 관리자 ───────── */
