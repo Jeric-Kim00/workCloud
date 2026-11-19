@@ -21,6 +21,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
 .brand-logo.logo-dark { display: none; }
 :root[data-theme="dark"] .brand-logo.logo-light { display: none; }
 :root[data-theme="dark"] .brand-logo.logo-dark { display: flex; }
+.pbadge { display: block; width: auto; max-width: 100%; align-self: flex-start; flex: none; object-fit: contain; object-position: left center; }
 .brand-mark { width: 24px; height: 24px; border-radius: 8px; background: var(--color-primary-default); color: var(--color-text-button-fill-text); display: grid; place-items: center; font-weight: 700; font-size: 13px; }
 .nav { display: flex; align-items: center; gap: 4px; flex-wrap: nowrap; overflow-x: auto; }
 .nav-link { background: none; border: 0; cursor: pointer; padding: 8px 10px; border-radius: 8px; color: var(--color-text-light); font: inherit; white-space: nowrap; }
@@ -765,6 +766,82 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
           h(T.Button, { variant: 'primaryFilled', type: 'submit', className: 'w-full' }, '비밀번호 바꾸기'))));
   }
 
+  /* ───────── 공식 파트너 배지 ─────────
+     타임리 로고(디자인 시스템)와 브랜드 보라로 등급별 배지를 그려 PNG로 만든다. 등급에 따라 바탕이 달라진다. */
+  var BADGES = {}, badgeListeners = [], badgeStarted = false;
+  function drawBadge(tier, logo) {
+    var solid = tier === 'Premier', soft = tier === 'Advanced';
+    var H = 200, pad = 44, lh = 60, lw = Math.round(lh * logo.naturalWidth / logo.naturalHeight), gap = 34;
+    var f1 = '600 24px Pretendard, -apple-system, "Segoe UI", sans-serif', f2 = '700 46px Pretendard, -apple-system, "Segoe UI", sans-serif';
+    var cv = document.createElement('canvas'), cx = cv.getContext('2d');
+    function spaced(v) { try { cx.letterSpacing = v; } catch (e) {} }
+    cx.font = f1; spaced('4px'); var w1 = cx.measureText('OFFICIAL PARTNER').width;
+    cx.font = f2; spaced('0px'); var w2 = cx.measureText(tier).width;
+    var textX = pad + lw + gap + 2 + gap, W = Math.ceil(textX + Math.max(w1, w2) + pad);
+    cv.width = W; cv.height = H;
+    var r = 28;
+    cx.beginPath(); cx.moveTo(1 + r, 1); cx.arcTo(W - 1, 1, W - 1, H - 1, r); cx.arcTo(W - 1, H - 1, 1, H - 1, r); cx.arcTo(1, H - 1, 1, 1, r); cx.arcTo(1, 1, W - 1, 1, r); cx.closePath();
+    cx.fillStyle = solid ? '#5e0aff' : soft ? '#f8f5ff' : '#ffffff'; cx.fill();
+    cx.lineWidth = 2; cx.strokeStyle = solid ? '#5e0aff' : soft ? '#5e0aff' : '#c9cdd2'; cx.stroke();
+    cx.drawImage(logo, pad, (H - lh) / 2, lw, lh);
+    cx.fillStyle = solid ? 'rgba(255,255,255,.45)' : '#c9cdd2'; cx.fillRect(pad + lw + gap, 52, 2, H - 104);
+    cx.textBaseline = 'alphabetic';
+    cx.font = f1; spaced('4px'); cx.fillStyle = solid ? '#ffffff' : '#4d5053'; cx.fillText('OFFICIAL PARTNER', textX, 84);
+    cx.font = f2; spaced('0px'); cx.fillStyle = solid ? '#ffffff' : '#5e0aff'; cx.fillText(tier, textX, 140);
+    return cv.toDataURL('image/png');
+  }
+  function loadImage(src) { return new Promise(function (res, rej) { var im = new Image(); im.onload = function () { res(im); }; im.onerror = rej; im.src = src; }); }
+  async function initBadges() {
+    if (badgeStarted) return; badgeStarted = true;
+    try {
+      var light = null, dark = null;
+      for (var i = 0; i < 40 && !(light && dark); i++) {   // 상단 바의 로고가 그려질 때까지 잠깐 기다린다
+        light = document.querySelector('.brand-logo.logo-light img'); dark = document.querySelector('.brand-logo.logo-dark img');
+        if (!(light && dark && light.src && dark.src)) { light = dark = null; await new Promise(function (r) { setTimeout(r, 100); }); }
+      }
+      if (!light) return;
+      var imgs = await Promise.all([loadImage(light.src), loadImage(dark.src)]);
+      try { await Promise.all([document.fonts.load('600 24px Pretendard'), document.fonts.load('700 46px Pretendard')]); } catch (e) {}
+      TIERS.forEach(function (t) { BADGES[t.name] = drawBadge(t.name, t.name === 'Premier' ? imgs[1] : imgs[0]); });
+      badgeListeners.forEach(function (fn) { fn(); });
+    } catch (e) {}
+  }
+  function useBadges() {
+    var s = useState(0), bump = s[1];
+    useEffect(function () {
+      var fn = function () { bump(function (x) { return x + 1; }); };
+      badgeListeners.push(fn); initBadges();
+      return function () { badgeListeners = badgeListeners.filter(function (x) { return x !== fn; }); };
+    }, []);
+    return BADGES;
+  }
+  function BadgeImg(props) {
+    var src = useBadges()[props.tier];
+    return src ? h('img', { className: 'pbadge', src: src, style: { height: props.height || 48 }, alt: 'TimelyAI Official Partner ' + props.tier + ' 배지' }) : null;
+  }
+  async function saveBadgeFile(tier) {
+    var src = BADGES[tier], dl = null;
+    if (!src) return { kind: 'danger', text: '배지를 아직 만들지 못했어요. 잠시 후 다시 시도해 주세요.' };
+    try { dl = window.claude && window.claude.use ? await window.claude.use('downloads') : null; } catch (e) {}
+    if (!dl) return { kind: 'danger', text: '이 화면에서는 파일을 저장할 수 없어요.' };
+    var bin = atob(src.split(',')[1]), bytes = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    try { await dl.save({ filename: 'timelyai-official-partner-' + tier.toLowerCase() + '.png', data: new Blob([bytes], { type: 'image/png' }) }); return { kind: 'ok', text: '배지 이미지를 저장했어요.' }; }
+    catch (e) { return e && e.code === 'declined' ? null : { kind: 'danger', text: '파일을 저장하지 못했어요. 잠시 후 다시 시도해 주세요.' }; }
+  }
+  function PartnerBadgeBox(props) {
+    var ms = useState(null), msg = ms[0], setMsg = ms[1];
+    return h('div', { className: 'box stack' },
+      h('div', { className: 'stack-s' }, P('head-sm-bold', '공식 파트너 배지'), P('body-md-regular muted', '홈페이지, 제안서, 명함에 쓸 수 있는 ' + props.tier + ' 등급 배지예요. 등급이 바뀌면 배지도 바뀌어요.')),
+      h('div', null, h(BadgeImg, { tier: props.tier, height: 72 })),
+      h('ul', { className: 'tier-list body-sm-regular muted' },
+        h('li', null, '파트너 자격이 유지되는 동안에만 쓸 수 있어요.'),
+        h('li', null, '색, 비율, 글자를 바꾸지 말고 주변에 여백을 두고 써 주세요.'),
+        h('li', null, '견적서에는 견적서 설정의 로고에서 "공식 파트너 배지"를 고르면 들어가요.')),
+      msg ? h(Notice, { kind: msg.kind }, msg.text) : null,
+      h('div', null, h(T.Button, { type: 'button', variant: 'grayScaleOutline', size: 'small', onClick: async function () { var r = await saveBadgeFile(props.tier); if (r) setMsg(r); } }, '배지 이미지 저장 (PNG)')));
+  }
+
   /* ───────── 상단 바 ───────── */
   function TopBar(props) {
     var items = [['home', '프로그램 소개', 'secondary'], ['apply', '파트너 신청'], ['portal', '파트너 포털']];
@@ -844,6 +921,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
           var req = i === 0 ? '요건: 파트너 계약 체결, 세일즈 기초 인증 1명'
             : '요건: 연 판매 실적 ' + won(t.min) + ' 이상, 인증 인력 ' + t.people + '명(기술 ' + t.tech + '명 포함), 고객 레퍼런스 ' + t.refs + '건';
           return h('div', { key: t.name, className: 'box tier' + (i === 1 ? ' selected' : '') },
+            h(BadgeImg, { tier: t.name, height: 56 }),
             h('div', { className: 'stack-s' }, P('head-sm-bold', t.name), P('body-md-regular muted', t.desc)),
             h('ul', { className: 'tier-list body-md-regular' }, perks.map(function (p) { return h('li', { key: p }, p); })),
             P('body-sm-regular muted req', req));
@@ -1121,6 +1199,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
       body = h(F, null, h('div', { className: 'box' }, h('dl', { className: 'kv body-md-regular' },
         [['회사명', partner.company || a.company], ['파트너 유형', a.type], ['등급', partner.tier], ['승인일', shortDate(partner.decidedAt)], ['담당자', [a.name, a.title].filter(Boolean).join(' · ')], ['회사 이메일', a.email], ['연락처', a.phone], ['관심 제품', (a.products || []).join(', ')]]
           .map(function (kv) { return h(F, { key: kv[0] }, h('dt', null, kv[0]), h('dd', null, kv[1] || '-')); }))),
+        h(PartnerBadgeBox, { tier: partner.tier || 'Registered' }),
         h('div', { className: 'stack-s' }, P('head-sm-bold', '우리 회사 할인율'), P('body-md-regular muted', '본사가 정한 파트너 할인율이에요. 같은 고객의 딜을 합산할지는 본사가 판단해요.')),
         h('div', { style: { maxWidth: 560 } }, h(PricingTable, { pricing: pricingOf(partner) })));
     }
@@ -1133,10 +1212,10 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
       onConfirm: function () { stageAsk.run(function () { return saveStage(pendingStage.deal, pendingStage.value).catch(function () {}); }).then(function () { setPendingStage(null); }); }
     }) : null;
 
-    if (qv && qv.mode === 'edit') return h(QuoteBuilder, { key: qv.init.quote.number, uid: uid, init: qv.init, onExit: exitQuote, onIssued: function (d, issue) { openIssued(d, issue, true); } });
+    if (qv && qv.mode === 'edit') return h(QuoteBuilder, { key: qv.init.quote.number, uid: uid, tier: partner.tier || 'Registered', init: qv.init, onExit: exitQuote, onIssued: function (d, issue) { openIssued(d, issue, true); } });
     if (qv && qv.mode === 'issued') return h(IssuedQuote, { key: qv.issue.number, doc: qv.doc, issue: qv.issue, fresh: qv.fresh, onExit: exitQuote, onCopy: openCopyQuote });
     return h('div', { className: 'wrap section stack', style: { gap: 20 } }, stageModal,
-      h('div', { className: 'portal-head' }, PageHead('파트너 포털', (partner.company || '파트너') + ' · ' + (partner.tier || 'Registered') + ' 등급')),
+      h('div', { className: 'portal-head' }, PageHead('파트너 포털', (partner.company || '파트너') + ' · ' + (partner.tier || 'Registered') + ' 등급', h(BadgeImg, { tier: partner.tier || 'Registered', height: 44 }))),
       h('div', { className: 'tabs-line' }, h(T.Tabs, { tabs: ['대시보드', '고객사 진행', '견적서', '딜 등록·관리', '리베이트', '교육·자료', '파트너 정보'], value: tab, onChange: function (x) { if (x !== '견적서') setQuoteQuery(null); setTab(x); } })),
       body);
   }
@@ -1589,6 +1668,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
   var LOGO_MAX_CHARS = 80000;
   function quoteLogoSrc(logo) {
     if (!logo || logo.kind === 'none') return '';
+    if (logo.kind === 'badge') return BADGES[logo.tier] || '';
     if (logo.kind === 'timely') { var el = document.querySelector('.brand-logo.logo-light img'); return el ? el.src : ''; }
     return /^data:image\/(png|jpeg);base64,[A-Za-z0-9+/=]+$/.test(logo.src || '') ? logo.src : '';
   }
@@ -1676,6 +1756,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
   }
   (function () { var st = document.createElement('style'); st.textContent = QDOC_CSS; document.head.appendChild(st); })();
   function QuotePaper(props) {
+    useBadges();   // 배지가 준비되면 다시 그린다
     var html = quoteDocHtml(props.q, props.issueNumber);
     return h('div', { className: 'qpaper-scroll' }, h('div', { className: 'qpaper', dangerouslySetInnerHTML: { __html: html } }));
   }
@@ -1819,7 +1900,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
       issueAsk.open ? h(ConfirmModal, { title: '발행본으로 저장할까요?', subTitle: q.customer.name.trim() + ' · ' + QTYPES[q.type], items: [['총 견적금액', wonFull(calc.total) + ' (VAT 포함)'], ['이용기간', q.start + ' ~ ' + q.end], ['견적 유효일', q.validUntil]],
         note: '발행본은 새 견적번호로 저장되고 고칠 수 없어요. 고객사에 보내는 일은 따로 하셔야 해요.', confirmLabel: '발행본 저장', busy: issueAsk.busy, onCancel: issueAsk.hide,
         onConfirm: function () { issueAsk.run(async function () { try { var r = await persist(true); props.onIssued(Object.assign({ id: r.id }, r.body), r.issue); } catch (err) { setMsg({ kind: 'danger', text: errText(err) }); } }); } }) : null,
-      settingsOpen ? h(QuoteSettings, { uid: props.uid, q: q, onChange: function (sv) { set('settings')(sv); }, onClose: function () { setSettingsOpen(false); } }) : null,
+      settingsOpen ? h(QuoteSettings, { uid: props.uid, tier: props.tier, q: q, onChange: function (sv) { set('settings')(sv); }, onClose: function () { setSettingsOpen(false); } }) : null,
       h('div', { className: 'between' },
         h('div', { className: 'stack-s', style: { gap: 2 } }, P('head-md-bold title', '견적서 작성'), P('body-md-regular muted num', q.number + (m.rev ? ' · 수정 버전 ' + m.rev : ' · 저장 전'))),
         h('div', { className: 'row' }, h(T.Button, { type: 'button', variant: 'grayScaleOutline', size: 'small', onClick: function () { setSettingsOpen(true); } }, '견적서 설정'), h(T.Button, { type: 'button', variant: 'grayScaleOutline', size: 'small', onClick: props.onExit }, '견적 내역으로'))),
@@ -1846,8 +1927,8 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
     function set(k) { return function (v) { var n = Object.assign({}, sv); n[k] = v; props.onChange(n); }; }
     function fld(label, node, help) { return h(Field, { label: label, help: help }, node); }
     var lm = useState(null), logoMsg = lm[0], setLogoMsg = lm[1];
-    var logo = sv.logo || { kind: 'none' }, LOGO_KINDS = { none: '없음', timely: '타임리 AI 로고', custom: '직접 올리기' };
-    function setLogoKind(label) { var k = Object.keys(LOGO_KINDS).filter(function (x) { return LOGO_KINDS[x] === label; })[0]; setLogoMsg(null); set('logo')(k === 'custom' ? { kind: 'custom', src: logo.src || '' } : { kind: k }); }
+    var logo = sv.logo || { kind: 'none' }, LOGO_KINDS = { none: '없음', badge: '공식 파트너 배지', timely: '타임리 AI 로고', custom: '직접 올리기' };
+    function setLogoKind(label) { var k = Object.keys(LOGO_KINDS).filter(function (x) { return LOGO_KINDS[x] === label; })[0]; setLogoMsg(null); set('logo')(k === 'badge' ? { kind: 'badge', tier: props.tier || 'Registered' } : k === 'custom' ? { kind: 'custom', src: logo.src || '' } : { kind: k }); }
     async function onLogoFile(ev) {
       var file = ev.target.files && ev.target.files[0]; ev.target.value = '';
       if (!file) return;
@@ -2376,6 +2457,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
       return function () { window.removeEventListener('hashchange', onHash); };
     }, []);
     var auth = useAuth();
+    useBadges();
     var screens = { apply: Apply, portal: Portal, admin: Admin, login: Login, signup: Signup, findid: FindId, findpw: FindPw };
     var body = h(screens[view] || Home, { go: go });
     return h(F, null, h(TopBar, { view: view, go: go, canEdit: p.canEdit, user: auth.user, onLogout: function () { setSession(null); go('home'); } }), body);
